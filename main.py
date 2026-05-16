@@ -2,26 +2,23 @@ import asyncio
 import os
 from aiogram import Bot, Dispatcher, types
 from aiogram.filters import CommandStart
-from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
+from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton, MessageEntity
 from dotenv import load_dotenv
 
 load_dotenv()
 
 BOT_TOKEN = os.getenv("BOT_TOKEN")
+PHOTO_FILE_ID = os.getenv("PHOTO_FILE_ID")
 
 bot = Bot(token=BOT_TOKEN)
 dp = Dispatcher()
 
-# Премиум эмодзи — двойные кавычки внутри строки
-EMOJI_HELLO   = '<tg-emoji emoji-id="547009278509">⭐</tg-emoji>'
-EMOJI_ARROW   = '<tg-emoji emoji-id="519320282341">👇</tg-emoji>'
-EMOJI_WALLET  = '<tg-emoji emoji-id="528997017605">💳</tg-emoji>'
-EMOJI_STARS   = '<tg-emoji emoji-id="534630912179">⭐</tg-emoji>'
-EMOJI_PREMIUM = '<tg-emoji emoji-id="527402680647">💎</tg-emoji>'
+
+def utf16_len(s: str) -> int:
+    return len(s.encode('utf-16-le')) // 2
 
 
 def get_user_balance(user_id: int) -> float:
-    # Пока что возвращает 0, потом подключим БД
     return 0.0
 
 
@@ -29,18 +26,21 @@ def build_main_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=[
         [
             InlineKeyboardButton(
-                text="💳 Пополнить баланс",
-                callback_data="top_up"
+                text="Пополнить баланс",
+                callback_data="top_up",
+                icon_custom_emoji_id="5289970176052179025"
             )
         ],
         [
             InlineKeyboardButton(
-                text="⭐ Звёзды",
-                callback_data="buy_stars"
+                text="Звёзды",
+                callback_data="buy_stars",
+                icon_custom_emoji_id="5346309121794659890"
             ),
             InlineKeyboardButton(
-                text="💎 Премиум",
-                callback_data="buy_premium"
+                text="Премиум",
+                callback_data="buy_premium",
+                icon_custom_emoji_id="5274026806477857971"
             )
         ]
     ])
@@ -52,21 +52,40 @@ async def cmd_start(message: types.Message):
     username = f"@{user.username}" if user.username else user.first_name
     balance = get_user_balance(user.id)
 
-    text = (
-        f"{EMOJI_HELLO} Привет, {username}\n\n"
-        f"<blockquote>У нас вы можете приобрести TG Stars и TG Premium.</blockquote>\n\n"
-        f"<blockquote>Ваш текущий баланс: {balance:.2f} ₽</blockquote>\n\n"
-        f"Выбери действие ниже {EMOJI_ARROW}"
-    )
+    hello_emoji = "⭐"
+    arrow_emoji = "👇"
 
-    await message.answer(
-        text,
+    greeting = f"{hello_emoji} Привет, {username}\n\n"
+    line2     = "У нас вы можете приобрести TG Stars и TG Premium.\n\n"
+    line3     = f"Ваш текущий баланс: {balance:.2f} ₽\n\n"
+    line4     = f"Выбери действие ниже {arrow_emoji}"
+
+    text = greeting + line2 + line3 + line4
+
+    entities = [
+        MessageEntity(type="custom_emoji", offset=0,
+                      length=utf16_len(hello_emoji),
+                      custom_emoji_id="5470092785094765546"),
+        MessageEntity(type="blockquote",
+                      offset=utf16_len(greeting),
+                      length=utf16_len(line2.rstrip('\n'))),
+        MessageEntity(type="blockquote",
+                      offset=utf16_len(greeting + line2),
+                      length=utf16_len(line3.rstrip('\n'))),
+        MessageEntity(type="custom_emoji",
+                      offset=utf16_len(greeting + line2 + line3 + "Выбери действие ниже "),
+                      length=utf16_len(arrow_emoji),
+                      custom_emoji_id="5193202823411546657"),
+    ]
+
+    await message.answer_photo(
+        photo=PHOTO_FILE_ID,
+        caption=text,
         reply_markup=build_main_keyboard(),
-        parse_mode="HTML"
+        caption_entities=entities
     )
 
 
-# Заглушки для кнопок (пока не работают, просто не падают)
 @dp.callback_query(lambda c: c.data in ["top_up", "buy_stars", "buy_premium"])
 async def handle_buttons(callback: types.CallbackQuery):
     await callback.answer("Скоро будет доступно!", show_alert=False)
