@@ -1,6 +1,6 @@
 import asyncio
 import os
-from aiogram import Bot, Dispatcher, types
+from aiogram import Bot, Dispatcher, types, F
 from aiogram.filters import CommandStart
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton, MessageEntity
 from dotenv import load_dotenv
@@ -46,6 +46,13 @@ def build_main_keyboard() -> InlineKeyboardMarkup:
     ])
 
 
+# Временный обработчик — отправь боту фото, он вернёт file_id
+@dp.message(F.photo)
+async def get_photo_id(message: types.Message):
+    file_id = message.photo[-1].file_id
+    await message.answer(f"file_id:\n<code>{file_id}</code>", parse_mode="HTML")
+
+
 @dp.message(CommandStart())
 async def cmd_start(message: types.Message):
     user = message.from_user
@@ -78,12 +85,19 @@ async def cmd_start(message: types.Message):
                       custom_emoji_id="5193202823411546657"),
     ]
 
-    await message.answer_photo(
-        photo=PHOTO_FILE_ID,
-        caption=text,
-        reply_markup=build_main_keyboard(),
-        caption_entities=entities
-    )
+    if PHOTO_FILE_ID:
+        await message.answer_photo(
+            photo=PHOTO_FILE_ID,
+            caption=text,
+            reply_markup=build_main_keyboard(),
+            caption_entities=entities
+        )
+    else:
+        await message.answer(
+            text=text,
+            reply_markup=build_main_keyboard(),
+            entities=entities
+        )
 
 
 @dp.callback_query(lambda c: c.data in ["top_up", "buy_stars", "buy_premium"])
