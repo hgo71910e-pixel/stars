@@ -13,7 +13,6 @@ dp = Dispatcher()
 
 
 def utf16_len(s: str) -> int:
-    """Длина строки в UTF-16 единицах — именно так считает Telegram"""
     return len(s.encode('utf-16-le')) // 2
 
 
@@ -51,35 +50,36 @@ async def cmd_start(message: types.Message):
     hello_emoji = "⭐"
     arrow_emoji = "👇"
 
-    greeting   = f"{hello_emoji} Привет, {username}\n\n"
-    line2      = "У нас вы можете приобрести TG Stars и TG Premium.\n\n"
-    line3      = f"Ваш текущий баланс: {balance:.2f} ₽\n\n"
-    line4      = f"Выбери действие ниже {arrow_emoji}"
+    greeting = f"{hello_emoji} Привет, {username}\n\n"
+    line2     = "У нас вы можете приобрести TG Stars и TG Premium.\n\n"
+    line3     = f"Ваш текущий баланс: {balance:.2f} ₽\n\n"
+    line4     = f"Выбери действие ниже {arrow_emoji}"
 
     text = greeting + line2 + line3 + line4
 
-    # Точный расчёт offset в UTF-16 (как требует Telegram)
-    offset_hello       = 0
-    len_hello          = utf16_len(hello_emoji)
-
-    offset_blockquote1 = utf16_len(greeting)
-    len_blockquote1    = utf16_len(line2.rstrip('\n'))
-
-    offset_blockquote2 = utf16_len(greeting + line2)
-    len_blockquote2    = utf16_len(line3.rstrip('\n'))
-
-    offset_arrow       = utf16_len(greeting + line2 + line3 + "Выбери действие ниже ")
-    len_arrow          = utf16_len(arrow_emoji)
-
     entities = [
-        MessageEntity(type="custom_emoji", offset=offset_hello,
-                      length=len_hello, custom_emoji_id="547009278509"),
-        MessageEntity(type="blockquote",   offset=offset_blockquote1,
-                      length=len_blockquote1),
-        MessageEntity(type="blockquote",   offset=offset_blockquote2,
-                      length=len_blockquote2),
-        MessageEntity(type="custom_emoji", offset=offset_arrow,
-                      length=len_arrow,    custom_emoji_id="519320282341"),
+        MessageEntity(
+            type="custom_emoji",
+            offset=0,
+            length=utf16_len(hello_emoji),
+            custom_emoji_id="5470092785094765546"
+        ),
+        MessageEntity(
+            type="blockquote",
+            offset=utf16_len(greeting),
+            length=utf16_len(line2.rstrip('\n'))
+        ),
+        MessageEntity(
+            type="blockquote",
+            offset=utf16_len(greeting + line2),
+            length=utf16_len(line3.rstrip('\n'))
+        ),
+        MessageEntity(
+            type="custom_emoji",
+            offset=utf16_len(greeting + line2 + line3 + "Выбери действие ниже "),
+            length=utf16_len(arrow_emoji),
+            custom_emoji_id="5193202823411546657"
+        ),
     ]
 
     await message.answer(
