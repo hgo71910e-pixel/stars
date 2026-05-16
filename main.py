@@ -122,22 +122,25 @@ def stars_main_text(user_id: int) -> tuple[str, list]:
 
 def stars_calc_text(price_line: str = "") -> tuple[str, list]:
     e1 = "⭐"; e2 = "⭐"; e3 = "⭐"
+    quote = "Здесь ты можешь посмотреть цену перед покупкой"
     line1 = f"{e1} Калькулятор\n\n"
-    line2 = f"Курс 1 {e2} = {STARS_RATE} RUB\n"
-    line3 = "Здесь ты можешь посмотреть цену перед покупкой"
-    extra = f"\n{price_line}" if price_line else ""
+    line2 = f"{quote}\n\n"
+    line3 = f"Курс 1 {e2} = {STARS_RATE} RUB\n"
+    extra = f"{e3} Цена: {price_line} RUB" if price_line else ""
     text = line1 + line2 + line3 + extra
 
     entities = [
         MessageEntity(type="custom_emoji", offset=0,
                       length=utf16_len(e1), custom_emoji_id="5415756135925829889"),
-        MessageEntity(type="custom_emoji", offset=utf16_len(line1 + "Курс 1 "),
+        MessageEntity(type="blockquote", offset=utf16_len(line1),
+                      length=utf16_len(quote)),
+        MessageEntity(type="custom_emoji", offset=utf16_len(line1 + line2 + "Курс 1 "),
                       length=utf16_len(e2), custom_emoji_id="5346309121794659890"),
     ]
 
     if price_line:
-        e3_offset = utf16_len(line1 + line2 + line3 + "\n")
-        entities.append(MessageEntity(type="custom_emoji", offset=e3_offset,
+        entities.append(MessageEntity(type="custom_emoji",
+                                      offset=utf16_len(line1 + line2 + line3),
                                       length=utf16_len(e3),
                                       custom_emoji_id="5260463209562776385"))
 
@@ -267,8 +270,7 @@ async def calc_stars(message: types.Message, state: FSMContext):
         if stars <= 0:
             raise ValueError
         price = round(stars * STARS_RATE, 2)
-        e = "⭐"
-        price_line = f"{e} Цена: {price} RUB"
+        price_line = str(price)
     except ValueError:
         return
 
@@ -339,7 +341,6 @@ async def process_amount(message: types.Message, state: FSMContext):
         if amount < MIN_AMOUNT:
             raise ValueError
     except ValueError:
-        e = "⭐"
         err_text = f"{e} Минимальное пополнение 10 RUB"
         err_entities = [MessageEntity(type="custom_emoji", offset=0, length=utf16_len(e),
                                       custom_emoji_id="5273914604752216432")]
