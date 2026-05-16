@@ -34,12 +34,32 @@ def get_user_balance(user_id: int) -> float:
 
 def build_main_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="Пополнить баланс", callback_data="top_up",
-                              icon_custom_emoji_id="5289970176052179025")],
-        [InlineKeyboardButton(text="Звёзды", callback_data="buy_stars",
-                              icon_custom_emoji_id="5346309121794659890"),
-         InlineKeyboardButton(text="Премиум", callback_data="buy_premium",
-                              icon_custom_emoji_id="5274026806477857971")]
+        [
+            InlineKeyboardButton(text="Пополнить баланс", callback_data="top_up",
+                                 icon_custom_emoji_id="5289970176052179025",
+                                 style="primary")
+        ],
+        [
+            InlineKeyboardButton(text="Звёзды", callback_data="buy_stars",
+                                 icon_custom_emoji_id="5346309121794659890"),
+            InlineKeyboardButton(text="Премиум", callback_data="buy_premium",
+                                 icon_custom_emoji_id="5274026806477857971")
+        ],
+        [
+            InlineKeyboardButton(text="Эмодзи пак", callback_data="emoji_pack",
+                                 icon_custom_emoji_id="5190573182439954711",
+                                 style="primary")
+        ],
+        [
+            InlineKeyboardButton(text="Мой профиль", callback_data="my_profile",
+                                 icon_custom_emoji_id="5870994129244131212"),
+            InlineKeyboardButton(text="Информация", callback_data="info",
+                                 icon_custom_emoji_id="5870609858520158157")
+        ],
+        [
+            InlineKeyboardButton(text="Реферальная программа", callback_data="referral",
+                                 icon_custom_emoji_id="5870772616305839506")
+        ],
     ])
 
 
@@ -147,7 +167,6 @@ async def pay_sbp(callback: types.CallbackQuery, state: FSMContext):
 
 @dp.message(TopUpStates.waiting_amount)
 async def process_amount(message: types.Message, state: FSMContext):
-    # Удаляем сообщение пользователя
     await message.delete()
 
     try:
@@ -186,16 +205,17 @@ async def process_amount(message: types.Message, state: FSMContext):
 
     data = await state.get_data()
     bot_msg_id = data.get("bot_msg_id")
-
-    await state.clear()  # сбрасываем стейт ДО редактирования
+    await state.clear()
 
     if bot_msg_id:
         await bot.edit_message_caption(chat_id=message.chat.id, message_id=bot_msg_id,
                                        caption=text, caption_entities=entities)
 
 
-@dp.callback_query(lambda c: c.data in ["buy_stars", "buy_premium"])
-async def handle_buttons(callback: types.CallbackQuery):
+@dp.callback_query(lambda c: c.data in [
+    "buy_stars", "buy_premium", "emoji_pack", "my_profile", "info", "referral"
+])
+async def handle_stub_buttons(callback: types.CallbackQuery):
     await callback.answer("Скоро будет доступно!", show_alert=False)
 
 
@@ -206,4 +226,3 @@ async def main():
 
 if __name__ == "__main__":
     asyncio.run(main())
-    
