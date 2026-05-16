@@ -12,6 +12,11 @@ bot = Bot(token=BOT_TOKEN)
 dp = Dispatcher()
 
 
+def utf16_len(s: str) -> int:
+    """Длина строки в UTF-16 единицах — именно так считает Telegram"""
+    return len(s.encode('utf-16-le')) // 2
+
+
 def get_user_balance(user_id: int) -> float:
     return 0.0
 
@@ -43,44 +48,44 @@ async def cmd_start(message: types.Message):
     username = f"@{user.username}" if user.username else user.first_name
     balance = get_user_balance(user.id)
 
-    # Используем обычные эмодзи как placeholder — длина 1 символ каждый
-    # Важно: НЕ используем parse_mode вместе с entities!
-    hello_emoji = "⭐"   # offset 0, length 2 (эмодзи = 2 UTF-16)
+    hello_emoji = "⭐"
     arrow_emoji = "👇"
 
-    greeting = f"{hello_emoji} Привет, {username}\n\n"
-    line2 = f"У нас вы можете приобрести TG Stars и TG Premium.\n\n"
-    line3 = f"Ваш текущий баланс: {balance:.2f} ₽\n\n"
-    line4 = f"Выбери действие ниже {arrow_emoji}"
+    greeting   = f"{hello_emoji} Привет, {username}\n\n"
+    line2      = "У нас вы можете приобрести TG Stars и TG Premium.\n\n"
+    line3      = f"Ваш текущий баланс: {balance:.2f} ₽\n\n"
+    line4      = f"Выбери действие ниже {arrow_emoji}"
 
     text = greeting + line2 + line3 + line4
 
-    # Считаем offset для blockquote и кастомных эмодзи
-    # Эмодзи занимают 2 UTF-16 единицы
-    offset_hello = 0
+    # Точный расчёт offset в UTF-16 (как требует Telegram)
+    offset_hello       = 0
+    len_hello          = utf16_len(hello_emoji)
 
-    offset_blockquote1 = len(greeting)
-    len_blockquote1 = len(line2) - 1  # без \n
+    offset_blockquote1 = utf16_len(greeting)
+    len_blockquote1    = utf16_len(line2.rstrip('\n'))
 
-    offset_blockquote2 = len(greeting + line2)
-    len_blockquote2 = len(line3) - 1  # без \n
+    offset_blockquote2 = utf16_len(greeting + line2)
+    len_blockquote2    = utf16_len(line3.rstrip('\n'))
 
-    offset_arrow = len(greeting + line2 + line3 + "Выбери действие ниже ")
+    offset_arrow       = utf16_len(greeting + line2 + line3 + "Выбери действие ниже ")
+    len_arrow          = utf16_len(arrow_emoji)
 
     entities = [
-        MessageEntity(type="custom_emoji", offset=offset_hello, length=2,
-                      custom_emoji_id="547009278509"),
-        MessageEntity(type="blockquote", offset=offset_blockquote1, length=len_blockquote1),
-        MessageEntity(type="blockquote", offset=offset_blockquote2, length=len_blockquote2),
-        MessageEntity(type="custom_emoji", offset=offset_arrow, length=2,
-                      custom_emoji_id="519320282341"),
+        MessageEntity(type="custom_emoji", offset=offset_hello,
+                      length=len_hello, custom_emoji_id="547009278509"),
+        MessageEntity(type="blockquote",   offset=offset_blockquote1,
+                      length=len_blockquote1),
+        MessageEntity(type="blockquote",   offset=offset_blockquote2,
+                      length=len_blockquote2),
+        MessageEntity(type="custom_emoji", offset=offset_arrow,
+                      length=len_arrow,    custom_emoji_id="519320282341"),
     ]
 
     await message.answer(
         text=text,
         reply_markup=build_main_keyboard(),
         entities=entities
-        # parse_mode НЕ указываем — entities и parse_mode несовместимы
     )
 
 
