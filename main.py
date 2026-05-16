@@ -2,18 +2,13 @@ import asyncio
 import os
 from aiogram import Bot, Dispatcher, types
 from aiogram.filters import CommandStart
-from aiogram.types import (
-    InlineKeyboardMarkup, InlineKeyboardButton,
-    MessageEntity
-)
-from aiogram.client.default import DefaultBotProperties
+from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton, MessageEntity
 from dotenv import load_dotenv
 
 load_dotenv()
 
 BOT_TOKEN = os.getenv("BOT_TOKEN")
-
-bot = Bot(token=BOT_TOKEN, default=DefaultBotProperties())
+bot = Bot(token=BOT_TOKEN)
 dp = Dispatcher()
 
 
@@ -26,20 +21,17 @@ def build_main_keyboard() -> InlineKeyboardMarkup:
         [
             InlineKeyboardButton(
                 text="💳 Пополнить баланс",
-                callback_data="top_up",
-                icon_custom_emoji_id="528997017605"
+                callback_data="top_up"
             )
         ],
         [
             InlineKeyboardButton(
                 text="⭐ Звёзды",
-                callback_data="buy_stars",
-                icon_custom_emoji_id="534630912179"
+                callback_data="buy_stars"
             ),
             InlineKeyboardButton(
                 text="💎 Премиум",
-                callback_data="buy_premium",
-                icon_custom_emoji_id="527402680647"
+                callback_data="buy_premium"
             )
         ]
     ])
@@ -51,29 +43,44 @@ async def cmd_start(message: types.Message):
     username = f"@{user.username}" if user.username else user.first_name
     balance = get_user_balance(user.id)
 
-    # Текст сообщения — эмодзи-заглушки на месте кастомных
-    text = (
-        f"⭐ Привет, {username}\n\n"
-        f"У нас вы можете приобрести TG Stars и TG Premium.\n\n"
-        f"Ваш текущий баланс: {balance:.2f} ₽\n\n"
-        f"Выбери действие ниже 👇"
-    )
+    # Используем обычные эмодзи как placeholder — длина 1 символ каждый
+    # Важно: НЕ используем parse_mode вместе с entities!
+    hello_emoji = "⭐"   # offset 0, length 2 (эмодзи = 2 UTF-16)
+    arrow_emoji = "👇"
 
-    # entities для кастомных эмодзи в тексте
-    # Позиция 0 — первый символ "⭐" (1 символ)
+    greeting = f"{hello_emoji} Привет, {username}\n\n"
+    line2 = f"У нас вы можете приобрести TG Stars и TG Premium.\n\n"
+    line3 = f"Ваш текущий баланс: {balance:.2f} ₽\n\n"
+    line4 = f"Выбери действие ниже {arrow_emoji}"
+
+    text = greeting + line2 + line3 + line4
+
+    # Считаем offset для blockquote и кастомных эмодзи
+    # Эмодзи занимают 2 UTF-16 единицы
+    offset_hello = 0
+
+    offset_blockquote1 = len(greeting)
+    len_blockquote1 = len(line2) - 1  # без \n
+
+    offset_blockquote2 = len(greeting + line2)
+    len_blockquote2 = len(line3) - 1  # без \n
+
+    offset_arrow = len(greeting + line2 + line3 + "Выбери действие ниже ")
+
     entities = [
-        MessageEntity(
-            type="custom_emoji",
-            offset=0,
-            length=1,
-            custom_emoji_id="547009278509"  # приветственный эмодзи
-        )
+        MessageEntity(type="custom_emoji", offset=offset_hello, length=2,
+                      custom_emoji_id="547009278509"),
+        MessageEntity(type="blockquote", offset=offset_blockquote1, length=len_blockquote1),
+        MessageEntity(type="blockquote", offset=offset_blockquote2, length=len_blockquote2),
+        MessageEntity(type="custom_emoji", offset=offset_arrow, length=2,
+                      custom_emoji_id="519320282341"),
     ]
 
     await message.answer(
-        text,
+        text=text,
         reply_markup=build_main_keyboard(),
         entities=entities
+        # parse_mode НЕ указываем — entities и parse_mode несовместимы
     )
 
 
