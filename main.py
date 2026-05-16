@@ -72,6 +72,14 @@ def build_main_keyboard() -> InlineKeyboardMarkup:
     ])
 
 
+BACK_EMOJI = "5346283871681935283"
+
+
+def back_btn(callback_data: str) -> InlineKeyboardButton:
+    return InlineKeyboardButton(text="Назад", callback_data=callback_data,
+                                icon_custom_emoji_id=BACK_EMOJI, style="danger")
+
+
 def build_stars_keyboard(calc_on: bool = False) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=[
         [
@@ -82,22 +90,21 @@ def build_stars_keyboard(calc_on: bool = False) -> InlineKeyboardMarkup:
                 style="primary" if calc_on else None
             )
         ],
-        [
-            InlineKeyboardButton(text="◀️ Назад", callback_data="back_to_main")
-        ]
+        [back_btn("back_to_main")]
     ])
 
 
 def build_payment_method_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="СБП Рубли | 8%", callback_data="pay_sbp",
-                              icon_custom_emoji_id="5368446439800197476")]
+                              icon_custom_emoji_id="5368446439800197476")],
+        [back_btn("back_to_main")]
     ])
 
 
 def build_enter_amount_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="◀️ Назад", callback_data="top_up")]
+        [back_btn("top_up")]
     ])
 
 
