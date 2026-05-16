@@ -24,17 +24,17 @@ def build_main_keyboard() -> InlineKeyboardMarkup:
     # icon_custom_emoji_id передаём через model_construct
     # чтобы обойти ограничения старых версий aiogram
     btn_topup = InlineKeyboardButton.model_construct(
-        text="💳 Пополнить баланс",
+        text="Пополнить баланс",
         callback_data="top_up",
         icon_custom_emoji_id="5289970176052179025"
     )
     btn_stars = InlineKeyboardButton.model_construct(
-        text="⭐ Звёзды",
+        text="Звёзды",
         callback_data="buy_stars",
         icon_custom_emoji_id="5346309121794659890"
     )
     btn_premium = InlineKeyboardButton.model_construct(
-        text="💎 Премиум",
+        text="Премиум",
         callback_data="buy_premium",
         icon_custom_emoji_id="5274026806477857971"
     )
