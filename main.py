@@ -41,9 +41,11 @@ def build_main_keyboard() -> InlineKeyboardMarkup:
         ],
         [
             InlineKeyboardButton(text="Звёзды", callback_data="buy_stars",
-                                 icon_custom_emoji_id="5346309121794659890"),
+                                 icon_custom_emoji_id="5346309121794659890",
+                                 style="success"),
             InlineKeyboardButton(text="Премиум", callback_data="buy_premium",
-                                 icon_custom_emoji_id="5274026806477857971")
+                                 icon_custom_emoji_id="5274026806477857971",
+                                 style="success")
         ],
         [
             InlineKeyboardButton(text="Эмодзи пак", callback_data="emoji_pack",
@@ -53,12 +55,14 @@ def build_main_keyboard() -> InlineKeyboardMarkup:
         [
             InlineKeyboardButton(text="Мой профиль", callback_data="my_profile",
                                  icon_custom_emoji_id="5870994129244131212"),
-            InlineKeyboardButton(text="Информация", callback_data="info",
-                                 icon_custom_emoji_id="5870609858520158157")
+            InlineKeyboardButton(text="Рефка", callback_data="referral",
+                                 icon_custom_emoji_id="5870772616305839506")
         ],
         [
-            InlineKeyboardButton(text="Реферальная программа", callback_data="referral",
-                                 icon_custom_emoji_id="5870772616305839506")
+            InlineKeyboardButton(text="Информация", callback_data="info",
+                                 icon_custom_emoji_id="5870609858520158157"),
+            InlineKeyboardButton(text="Отзывы", callback_data="reviews",
+                                 icon_custom_emoji_id="5870753782874246579")
         ],
     ])
 
@@ -213,7 +217,8 @@ async def process_amount(message: types.Message, state: FSMContext):
 
 
 @dp.callback_query(lambda c: c.data in [
-    "buy_stars", "buy_premium", "emoji_pack", "my_profile", "info", "referral"
+    "buy_stars", "buy_premium", "emoji_pack", "my_profile",
+    "info", "referral", "reviews"
 ])
 async def handle_stub_buttons(callback: types.CallbackQuery):
     await callback.answer("Скоро будет доступно!", show_alert=False)
