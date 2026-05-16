@@ -100,8 +100,6 @@ async def cmd_start(message: types.Message, state: FSMContext):
         await message.answer(text=text, reply_markup=build_main_keyboard(), entities=entities)
 
 
-# ─── Пополнить баланс — редактируем то же сообщение ──────────────────────────
-
 @dp.callback_query(lambda c: c.data == "top_up")
 async def top_up_menu(callback: types.CallbackQuery, state: FSMContext):
     await state.clear()
@@ -115,32 +113,43 @@ async def top_up_menu(callback: types.CallbackQuery, state: FSMContext):
                       length=utf16_len(e1), custom_emoji_id="5368446439800197476"),
     ]
 
-    await callback.message.edit_caption(caption=text, reply_markup=build_payment_method_keyboard(),
+    await callback.message.edit_caption(caption=text,
+                                        reply_markup=build_payment_method_keyboard(),
                                         caption_entities=entities)
     await callback.answer()
 
 
 @dp.callback_query(lambda c: c.data == "pay_sbp")
 async def pay_sbp(callback: types.CallbackQuery, state: FSMContext):
-    e1 = "⭐"
-    line1 = "Пополнение через Platega\nКомиссия платежной системы: 8%\nМинимальное пополнение: 10 RUB\n\n"
-    line2 = f"{e1} Введите сумму:"
-    text = line1 + line2
+    ei = "⭐"
+    line1 = "Пополнение через Platega\n\n"
+    line2 = f"{ei} Комиссия платежной системы: 8%\n"
+    line3 = f"{ei} Минимальное пополнение: 10 RUB\n\n"
+    line4 = f"{ei} Введите сумму:"
+    text = line1 + line2 + line3 + line4
 
     entities = [
         MessageEntity(type="custom_emoji", offset=utf16_len(line1),
-                      length=utf16_len(e1), custom_emoji_id="5289970176052179025"),
+                      length=utf16_len(ei), custom_emoji_id="5870609858520158157"),
+        MessageEntity(type="custom_emoji", offset=utf16_len(line1 + line2),
+                      length=utf16_len(ei), custom_emoji_id="5870609858520158157"),
+        MessageEntity(type="custom_emoji", offset=utf16_len(line1 + line2 + line3),
+                      length=utf16_len(ei), custom_emoji_id="5289970176052179025"),
     ]
 
     await callback.message.edit_caption(caption=text,
                                         reply_markup=build_enter_amount_keyboard(),
                                         caption_entities=entities)
     await state.set_state(TopUpStates.waiting_amount)
+    await state.update_data(bot_msg_id=callback.message.message_id)
     await callback.answer()
 
 
 @dp.message(TopUpStates.waiting_amount)
 async def process_amount(message: types.Message, state: FSMContext):
+    # Удаляем сообщение пользователя
+    await message.delete()
+
     try:
         amount = float(message.text.replace(",", "."))
         if amount < MIN_AMOUNT:
@@ -153,13 +162,12 @@ async def process_amount(message: types.Message, state: FSMContext):
         err_msg = await message.answer(err_text, entities=err_entities)
         await asyncio.sleep(2)
         await err_msg.delete()
-        await message.delete()
         return
 
     total = round(amount * (1 + COMMISSION), 2)
 
     e1 = "⭐"; e2 = "⭐"; e3 = "⭐"; e4 = "👇"
-    line1 = f"{e1} Готово!\n"
+    line1 = f"{e1} Готово!\n\n"
     line2 = f"{e2} Сумма к оплате: {total:.2f} RUB\n"
     line3 = f"{e3} Сумма к получению: {amount:.2f} RUB\n"
     line4 = f"{e4} Для оплаты нажмите кнопку ниже:"
@@ -176,19 +184,14 @@ async def process_amount(message: types.Message, state: FSMContext):
                       length=utf16_len(e4), custom_emoji_id="5193202823411546657"),
     ]
 
-    # Удаляем сообщение пользователя с суммой
-    await message.delete()
-
-    # Находим сообщение бота и редактируем его
     data = await state.get_data()
     bot_msg_id = data.get("bot_msg_id")
+
+    await state.clear()  # сбрасываем стейт ДО редактирования
+
     if bot_msg_id:
         await bot.edit_message_caption(chat_id=message.chat.id, message_id=bot_msg_id,
                                        caption=text, caption_entities=entities)
-    else:
-        await message.answer(text, entities=entities)
-
-    await state.clear()
 
 
 @dp.callback_query(lambda c: c.data in ["buy_stars", "buy_premium"])
@@ -203,4 +206,4 @@ async def main():
 
 if __name__ == "__main__":
     asyncio.run(main())
-        
+    
