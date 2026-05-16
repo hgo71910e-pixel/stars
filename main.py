@@ -46,7 +46,6 @@ def build_main_keyboard() -> InlineKeyboardMarkup:
     ])
 
 
-# Временный обработчик — отправь боту фото, он вернёт file_id
 @dp.message(F.photo)
 async def get_photo_id(message: types.Message):
     file_id = message.photo[-1].file_id
@@ -59,29 +58,46 @@ async def cmd_start(message: types.Message):
     username = f"@{user.username}" if user.username else user.first_name
     balance = get_user_balance(user.id)
 
-    hello_emoji = "⭐"
-    arrow_emoji = "👇"
+    # Заглушки по 1 эмодзи (2 UTF-16 единицы каждый)
+    e1 = "⭐"  # привет — будет 5269579312008299587
+    e2 = "⭐"  # перед цитатой 1 — будет 5346284060660494696
+    e3 = "⭐"  # перед цитатой 2 — будет 5289970176052179025
+    e4 = "👇"  # стрелка — 5193202823411546657
 
-    greeting = f"{hello_emoji} Привет, {username}\n\n"
-    line2     = "У нас вы можете приобрести TG Stars и TG Premium.\n\n"
-    line3     = f"Ваш текущий баланс: {balance:.2f} ₽\n\n"
-    line4     = f"Выбери действие ниже {arrow_emoji}"
+    greeting = f"{e1} Привет, {username}\n\n"
+    line2     = f"{e2} У нас вы можете приобрести TG Stars и TG Premium.\n\n"
+    line3     = f"{e3} Ваш текущий баланс: {balance:.2f} ₽\n\n"
+    line4     = f"Выбери действие ниже {e4}"
 
     text = greeting + line2 + line3 + line4
 
     entities = [
+        # Привет эмодзи
         MessageEntity(type="custom_emoji", offset=0,
-                      length=utf16_len(hello_emoji),
-                      custom_emoji_id="5470092785094765546"),
+                      length=utf16_len(e1),
+                      custom_emoji_id="5269579312008299587"),
+        # Цитата 1 (включая эмодзи перед ней)
         MessageEntity(type="blockquote",
                       offset=utf16_len(greeting),
                       length=utf16_len(line2.rstrip('\n'))),
+        # Эмодзи внутри цитаты 1
+        MessageEntity(type="custom_emoji",
+                      offset=utf16_len(greeting),
+                      length=utf16_len(e2),
+                      custom_emoji_id="5346284060660494696"),
+        # Цитата 2 (включая эмодзи перед ней)
         MessageEntity(type="blockquote",
                       offset=utf16_len(greeting + line2),
                       length=utf16_len(line3.rstrip('\n'))),
+        # Эмодзи внутри цитаты 2
+        MessageEntity(type="custom_emoji",
+                      offset=utf16_len(greeting + line2),
+                      length=utf16_len(e3),
+                      custom_emoji_id="5289970176052179025"),
+        # Стрелка
         MessageEntity(type="custom_emoji",
                       offset=utf16_len(greeting + line2 + line3 + "Выбери действие ниже "),
-                      length=utf16_len(arrow_emoji),
+                      length=utf16_len(e4),
                       custom_emoji_id="5193202823411546657"),
     ]
 
