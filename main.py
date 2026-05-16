@@ -16,7 +16,7 @@ PHOTO_FILE_ID = os.getenv("PHOTO_FILE_ID")
 bot = Bot(token=BOT_TOKEN)
 dp = Dispatcher(storage=MemoryStorage())
 
-COMMISSION = 0.08  # 8%
+COMMISSION = 0.08
 MIN_AMOUNT = 10
 
 
@@ -30,13 +30,6 @@ def utf16_len(s: str) -> int:
 
 def get_user_balance(user_id: int) -> float:
     return 0.0
-
-
-def make_entity(type, offset_str, emoji_str, emoji_id=None):
-    e = {"type": type, "offset": utf16_len(offset_str), "length": utf16_len(emoji_str)}
-    if emoji_id:
-        e["custom_emoji_id"] = emoji_id
-    return MessageEntity(**e)
 
 
 def build_main_keyboard() -> InlineKeyboardMarkup:
@@ -57,7 +50,11 @@ def build_payment_method_keyboard() -> InlineKeyboardMarkup:
     ])
 
 
-# ─── /start ───────────────────────────────────────────────────────────────────
+def build_enter_amount_keyboard() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="◀️ Назад", callback_data="top_up")]
+    ])
+
 
 @dp.message(F.photo)
 async def get_photo_id(message: types.Message):
@@ -66,17 +63,17 @@ async def get_photo_id(message: types.Message):
 
 
 @dp.message(CommandStart())
-async def cmd_start(message: types.Message):
+async def cmd_start(message: types.Message, state: FSMContext):
+    await state.clear()
     user = message.from_user
     username = f"@{user.username}" if user.username else user.first_name
     balance = get_user_balance(user.id)
 
     e1 = "⭐"; e2 = "⭐"; e3 = "⭐"; e4 = "👇"
-
     greeting = f"{e1} Привет, {username}\n\n"
-    line2     = f"{e2} У нас вы можете приобрести TG Stars и TG Premium.\n\n"
-    line3     = f"{e3} Ваш текущий баланс: {balance:.2f} RUB\n\n"
-    line4     = f"Выбери действие ниже {e4}"
+    line2    = f"{e2} У нас вы можете приобрести TG Stars и TG Premium.\n\n"
+    line3    = f"{e3} Ваш текущий баланс: {balance:.2f} RUB\n\n"
+    line4    = f"Выбери действие ниже {e4}"
     text = greeting + line2 + line3 + line4
 
     entities = [
@@ -103,32 +100,41 @@ async def cmd_start(message: types.Message):
         await message.answer(text=text, reply_markup=build_main_keyboard(), entities=entities)
 
 
-# ─── Пополнить баланс ─────────────────────────────────────────────────────────
+# ─── Пополнить баланс — редактируем то же сообщение ──────────────────────────
 
 @dp.callback_query(lambda c: c.data == "top_up")
-async def top_up_menu(callback: types.CallbackQuery):
-    e = "⭐"
-    text = f"{e} Выберите способ пополнения из предложенных:"
-    entities = [MessageEntity(type="custom_emoji", offset=0, length=utf16_len(e),
-                              custom_emoji_id="5368446439800197476")]
-    await callback.message.answer(text, reply_markup=build_payment_method_keyboard(),
-                                  entities=entities)
+async def top_up_menu(callback: types.CallbackQuery, state: FSMContext):
+    await state.clear()
+    e1 = "⭐"
+    line1 = "Выберите способ пополнения из предложенных:\n\n"
+    line2 = f"{e1} СБП - оплата рублями через QR-код"
+    text = line1 + line2
+
+    entities = [
+        MessageEntity(type="custom_emoji", offset=utf16_len(line1),
+                      length=utf16_len(e1), custom_emoji_id="5368446439800197476"),
+    ]
+
+    await callback.message.edit_caption(caption=text, reply_markup=build_payment_method_keyboard(),
+                                        caption_entities=entities)
     await callback.answer()
 
 
 @dp.callback_query(lambda c: c.data == "pay_sbp")
 async def pay_sbp(callback: types.CallbackQuery, state: FSMContext):
-    text = (
-        "Пополнение через Platega\n"
-        "Комиссия платежной системы: 8%\n"
-        "Минимальное пополнение: 10 RUB\n\n"
-        "⭐ Введите сумму:"
-    )
-    e = "⭐"
-    prefix = "Пополнение через Platega\nКомиссия платежной системы: 8%\nМинимальное пополнение: 10 RUB\n\n"
-    entities = [MessageEntity(type="custom_emoji", offset=utf16_len(prefix),
-                              length=utf16_len(e), custom_emoji_id="5289970176052179025")]
-    await callback.message.answer(text, entities=entities)
+    e1 = "⭐"
+    line1 = "Пополнение через Platega\nКомиссия платежной системы: 8%\nМинимальное пополнение: 10 RUB\n\n"
+    line2 = f"{e1} Введите сумму:"
+    text = line1 + line2
+
+    entities = [
+        MessageEntity(type="custom_emoji", offset=utf16_len(line1),
+                      length=utf16_len(e1), custom_emoji_id="5289970176052179025"),
+    ]
+
+    await callback.message.edit_caption(caption=text,
+                                        reply_markup=build_enter_amount_keyboard(),
+                                        caption_entities=entities)
     await state.set_state(TopUpStates.waiting_amount)
     await callback.answer()
 
@@ -137,24 +143,17 @@ async def pay_sbp(callback: types.CallbackQuery, state: FSMContext):
 async def process_amount(message: types.Message, state: FSMContext):
     try:
         amount = float(message.text.replace(",", "."))
+        if amount < MIN_AMOUNT:
+            raise ValueError
     except ValueError:
-        err_e = "⭐"
-        err_text = f"{err_e} Минимальное пополнение 10 RUB"
-        err_entities = [MessageEntity(type="custom_emoji", offset=0, length=utf16_len(err_e),
+        e = "⭐"
+        err_text = f"{e} Минимальное пополнение 10 RUB"
+        err_entities = [MessageEntity(type="custom_emoji", offset=0, length=utf16_len(e),
                                       custom_emoji_id="5273914604752216432")]
         err_msg = await message.answer(err_text, entities=err_entities)
         await asyncio.sleep(2)
         await err_msg.delete()
-        return
-
-    if amount < MIN_AMOUNT:
-        err_e = "⭐"
-        err_text = f"{err_e} Минимальное пополнение 10 RUB"
-        err_entities = [MessageEntity(type="custom_emoji", offset=0, length=utf16_len(err_e),
-                                      custom_emoji_id="5273914604752216432")]
-        err_msg = await message.answer(err_text, entities=err_entities)
-        await asyncio.sleep(2)
-        await err_msg.delete()
+        await message.delete()
         return
 
     total = round(amount * (1 + COMMISSION), 2)
@@ -177,7 +176,18 @@ async def process_amount(message: types.Message, state: FSMContext):
                       length=utf16_len(e4), custom_emoji_id="5193202823411546657"),
     ]
 
-    await message.answer(text, entities=entities)
+    # Удаляем сообщение пользователя с суммой
+    await message.delete()
+
+    # Находим сообщение бота и редактируем его
+    data = await state.get_data()
+    bot_msg_id = data.get("bot_msg_id")
+    if bot_msg_id:
+        await bot.edit_message_caption(chat_id=message.chat.id, message_id=bot_msg_id,
+                                       caption=text, caption_entities=entities)
+    else:
+        await message.answer(text, entities=entities)
+
     await state.clear()
 
 
@@ -193,4 +203,4 @@ async def main():
 
 if __name__ == "__main__":
     asyncio.run(main())
-    
+        
