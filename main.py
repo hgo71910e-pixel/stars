@@ -21,23 +21,26 @@ def get_user_balance(user_id: int) -> float:
 
 
 def build_main_keyboard() -> InlineKeyboardMarkup:
+    # icon_custom_emoji_id передаём через model_construct
+    # чтобы обойти ограничения старых версий aiogram
+    btn_topup = InlineKeyboardButton.model_construct(
+        text="💳 Пополнить баланс",
+        callback_data="top_up",
+        icon_custom_emoji_id="5289970176052179025"
+    )
+    btn_stars = InlineKeyboardButton.model_construct(
+        text="⭐ Звёзды",
+        callback_data="buy_stars",
+        icon_custom_emoji_id="5346309121794659890"
+    )
+    btn_premium = InlineKeyboardButton.model_construct(
+        text="💎 Премиум",
+        callback_data="buy_premium",
+        icon_custom_emoji_id="5274026806477857971"
+    )
     return InlineKeyboardMarkup(inline_keyboard=[
-        [
-            InlineKeyboardButton(
-                text="💳 Пополнить баланс",
-                callback_data="top_up"
-            )
-        ],
-        [
-            InlineKeyboardButton(
-                text="⭐ Звёзды",
-                callback_data="buy_stars"
-            ),
-            InlineKeyboardButton(
-                text="💎 Премиум",
-                callback_data="buy_premium"
-            )
-        ]
+        [btn_topup],
+        [btn_stars, btn_premium]
     ])
 
 
