@@ -521,8 +521,45 @@ async def process_amount(message: types.Message, state: FSMContext):
                                        caption=text, caption_entities=entities)
 
 
+@dp.callback_query(lambda c: c.data == "info")
+async def show_info(callback: types.CallbackQuery):
+    e1 = "⭐"; e2 = "⭐"; e3 = "⭐"; e4 = "⭐"; e5 = "⭐"
+    line1 = f"{e1} Информация\n\n"
+    line2 = f"Для ознакомления с правилами сервиса воспользуйтесь ссылками ниже {e2}\n\n"
+    line3 = f"{e3} Политика конфиденциальности\n"
+    line4 = f"{e4} Пользовательское соглашение\n\n"
+    line5 = f"{e5} Тех. Поддержка: @tntks"
+    text = line1 + line2 + line3 + line4 + line5
+
+    entities = [
+        MessageEntity(type="custom_emoji", offset=0, length=utf16_len(e1),
+                      custom_emoji_id="5870609858520158157"),
+        MessageEntity(type="custom_emoji",
+                      offset=utf16_len(line1 + "Для ознакомления с правилами сервиса воспользуйтесь ссылками ниже "),
+                      length=utf16_len(e2), custom_emoji_id="5193202823411546657"),
+        MessageEntity(type="custom_emoji", offset=utf16_len(line1 + line2),
+                      length=utf16_len(e3), custom_emoji_id="5875206779196935950"),
+        MessageEntity(type="custom_emoji", offset=utf16_len(line1 + line2 + line3),
+                      length=utf16_len(e4), custom_emoji_id="5875206779196935950"),
+        MessageEntity(type="custom_emoji", offset=utf16_len(line1 + line2 + line3 + line4),
+                      length=utf16_len(e5), custom_emoji_id="5938252440926163756"),
+    ]
+
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="Политика конфиденциальности",
+                              url="https://telegra.ph/Politika-konfidencialnosti-04-01-26")],
+        [InlineKeyboardButton(text="Пользовательское соглашение",
+                              url="https://telegra.ph/Polzovatelskoe-soglashenie-04-01-19")],
+        [back_btn("back_to_main")]
+    ])
+
+    await callback.message.edit_caption(caption=text, reply_markup=kb,
+                                        caption_entities=entities)
+    await callback.answer()
+
+
 @dp.callback_query(lambda c: c.data in [
-    "buy_premium", "emoji_pack", "my_profile", "info", "referral", "reviews"
+    "buy_premium", "emoji_pack", "my_profile", "referral", "reviews"
 ])
 async def handle_stub_buttons(callback: types.CallbackQuery):
     await callback.answer("Скоро будет доступно!", show_alert=False)
@@ -530,6 +567,9 @@ async def handle_stub_buttons(callback: types.CallbackQuery):
 
 async def main():
     init_db()
+    await bot.set_my_commands([
+        types.BotCommand(command="start", description="Меню")
+    ])
     print("Бот запущен...")
     await dp.start_polling(bot)
 
