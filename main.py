@@ -459,12 +459,14 @@ async def top_up_menu(callback: types.CallbackQuery, state: FSMContext):
 @dp.callback_query(lambda c: c.data == "pay_sbp")
 async def pay_sbp(callback: types.CallbackQuery, state: FSMContext):
     ei = "⭐"
-    line1 = "Пополнение через Platega\n\n"
+    line1 = f"{ei} Пополнение через Platega\n\n"
     line2 = f"{ei} Комиссия платежной системы: 8%\n"
     line3 = f"{ei} Минимальное пополнение: 10 RUB\n\n"
     line4 = f"{ei} Введите сумму:"
     text = line1 + line2 + line3 + line4
     entities = [
+        MessageEntity(type="custom_emoji", offset=0,
+                      length=utf16_len(ei), custom_emoji_id="5303530109360174452"),
         MessageEntity(type="custom_emoji", offset=utf16_len(line1),
                       length=utf16_len(ei), custom_emoji_id="5870609858520158157"),
         MessageEntity(type="custom_emoji", offset=utf16_len(line1 + line2),
