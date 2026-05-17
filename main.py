@@ -545,11 +545,20 @@ async def show_info(callback: types.CallbackQuery):
                       length=utf16_len(e5), custom_emoji_id="5938252440926163756"),
     ]
 
+    # Добавляем гиперссылки через entities (offset после эмодзи + пробел)
+    e_len = utf16_len("⭐") + utf16_len(" ")  # эмодзи + пробел
+    entities += [
+        MessageEntity(type="text_link",
+                      offset=utf16_len(line1 + line2) + e_len,
+                      length=utf16_len("Политика конфиденциальности"),
+                      url="https://telegra.ph/Politika-konfidencialnosti-04-01-26"),
+        MessageEntity(type="text_link",
+                      offset=utf16_len(line1 + line2 + line3) + e_len,
+                      length=utf16_len("Пользовательское соглашение"),
+                      url="https://telegra.ph/Polzovatelskoe-soglashenie-04-01-19"),
+    ]
+
     kb = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="Политика конфиденциальности",
-                              url="https://telegra.ph/Politika-konfidencialnosti-04-01-26")],
-        [InlineKeyboardButton(text="Пользовательское соглашение",
-                              url="https://telegra.ph/Polzovatelskoe-soglashenie-04-01-19")],
         [back_btn("back_to_main")]
     ])
 
