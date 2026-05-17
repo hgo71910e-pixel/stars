@@ -10,7 +10,7 @@ _pool = None
 async def get_pool():
     global _pool
     if _pool is None:
-        _pool = await asyncpg.create_pool(DATABASE_URL)
+        _pool = await asyncpg.create_pool(DATABASE_URL, ssl="require")
     return _pool
 
 
