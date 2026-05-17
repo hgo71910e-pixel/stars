@@ -444,22 +444,27 @@ async def stars_confirm(callback: types.CallbackQuery, state: FSMContext):
     await callback.answer("⏳ Обрабатываем заказ...", show_alert=False)
 
     try:
-        import aiohttp
+        import aiohttp, uuid
         async with aiohttp.ClientSession() as session:
             async with session.post(
-                "https://robynhood.parssms.info/api/stars/send",
+                "https://robynhood.parssms.info/api/purchasing",
                 headers={
                     "X-API-Key": ROBYNHOOD_API_KEY,
                     "Content-Type": "application/json"
                 },
                 json={
-                    "username": username,
-                    "amount": stars
+                    "product_type": "stars",
+                    "recipient": username,
+                    "quantity": str(stars),
+                    "idempotency_key": str(uuid.uuid4())
                 }
             ) as resp:
+                if resp.status not in (200, 201):
+                    text = await resp.text()
+                    raise Exception(f"HTTP {resp.status}: {text[:200]}")
                 result = await resp.json()
-                if not result.get("success"):
-                    raise Exception(result.get("message", "Unknown error"))
+                if result.get("status") not in ("success", "completed", None):
+                    raise Exception(str(result))
         # Списываем баланс
         await deduct_balance(user_id, total_rub)
         await add_log(user_id, "buy_stars", f"{stars} stars → @{username}")
