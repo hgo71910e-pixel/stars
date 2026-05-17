@@ -19,6 +19,8 @@ dp = Dispatcher(storage=MemoryStorage())
 COMMISSION = 0.08
 MIN_AMOUNT = 10
 STARS_RATE = 1.25
+STARS_MIN = 50
+USD_RATE = 90.0  # курс доллара, обновишь потом
 
 
 class TopUpStates(StatesGroup):
@@ -27,6 +29,9 @@ class TopUpStates(StatesGroup):
 
 class StarsStates(StatesGroup):
     calculator = State()
+    enter_stars_self = State()
+    enter_stars_friend = State()
+    confirm_self = State()
 
 
 def utf16_len(s: str) -> int:
@@ -37,42 +42,7 @@ def get_user_balance(user_id: int) -> float:
     return 0.0
 
 
-def build_main_keyboard() -> InlineKeyboardMarkup:
-    return InlineKeyboardMarkup(inline_keyboard=[
-        [
-            InlineKeyboardButton(text="Пополнить баланс", callback_data="top_up",
-                                 icon_custom_emoji_id="5289970176052179025",
-                                 style="primary")
-        ],
-        [
-            InlineKeyboardButton(text="Звёзды", callback_data="buy_stars",
-                                 icon_custom_emoji_id="5346309121794659890",
-                                 style="success"),
-            InlineKeyboardButton(text="Премиум", callback_data="buy_premium",
-                                 icon_custom_emoji_id="5274026806477857971",
-                                 style="success")
-        ],
-        [
-            InlineKeyboardButton(text="Эмодзи пак", callback_data="emoji_pack",
-                                 icon_custom_emoji_id="5190573182439954711",
-                                 style="primary")
-        ],
-        [
-            InlineKeyboardButton(text="Мой профиль", callback_data="my_profile",
-                                 icon_custom_emoji_id="5870994129244131212"),
-            InlineKeyboardButton(text="Рефка", callback_data="referral",
-                                 icon_custom_emoji_id="5870772616305839506")
-        ],
-        [
-            InlineKeyboardButton(text="Информация", callback_data="info",
-                                 icon_custom_emoji_id="5870609858520158157"),
-            InlineKeyboardButton(text="Отзывы", callback_data="reviews",
-                                 icon_custom_emoji_id="5870753782874246579")
-        ],
-    ])
-
-
-BACK_EMOJI = "5346283871681935283"
+BACK_EMOJI = "5258236805890710909"
 
 
 def back_btn(callback_data: str) -> InlineKeyboardButton:
@@ -80,17 +50,65 @@ def back_btn(callback_data: str) -> InlineKeyboardButton:
                                 icon_custom_emoji_id=BACK_EMOJI, style="danger")
 
 
+# ─── Клавиатуры ───────────────────────────────────────────────────────────────
+
+def build_main_keyboard() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="Пополнить баланс", callback_data="top_up",
+                              icon_custom_emoji_id="5289970176052179025", style="primary")],
+        [InlineKeyboardButton(text="Звёзды", callback_data="buy_stars",
+                              icon_custom_emoji_id="5346309121794659890", style="success"),
+         InlineKeyboardButton(text="Премиум", callback_data="buy_premium",
+                              icon_custom_emoji_id="5274026806477857971", style="success")],
+        [InlineKeyboardButton(text="Эмодзи пак", callback_data="emoji_pack",
+                              icon_custom_emoji_id="5190573182439954711", style="primary")],
+        [InlineKeyboardButton(text="Мой профиль", callback_data="my_profile",
+                              icon_custom_emoji_id="5870994129244131212"),
+         InlineKeyboardButton(text="Рефка", callback_data="referral",
+                              icon_custom_emoji_id="5870772616305839506")],
+        [InlineKeyboardButton(text="Информация", callback_data="info",
+                              icon_custom_emoji_id="5870609858520158157"),
+         InlineKeyboardButton(text="Отзывы", callback_data="reviews",
+                              icon_custom_emoji_id="5870753782874246579")],
+    ])
+
+
 def build_stars_keyboard(calc_on: bool = False) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=[
-        [
-            InlineKeyboardButton(
-                text="Калькулятор",
-                callback_data="stars_calc_off" if calc_on else "stars_calc_on",
-                icon_custom_emoji_id="5415756135925829889",
-                style="primary" if calc_on else None
-            )
-        ],
+        [InlineKeyboardButton(
+            text="Калькулятор",
+            callback_data="stars_calc_off" if calc_on else "stars_calc_on",
+            icon_custom_emoji_id="5415756135925829889",
+            style="primary" if calc_on else None)],
         [back_btn("back_to_main")]
+    ])
+
+
+def build_who_keyboard() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="Себе", callback_data="stars_self"),
+         InlineKeyboardButton(text="Другу", callback_data="stars_friend")],
+        [back_btn("buy_stars")]
+    ])
+
+
+def build_enter_stars_keyboard(calc_on: bool = False) -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(
+            text="Калькулятор",
+            callback_data="stars_calc_off" if calc_on else "stars_calc_on",
+            icon_custom_emoji_id="5415756135925829889",
+            style="primary" if calc_on else None)],
+        [back_btn("stars_who")]
+    ])
+
+
+def build_confirm_keyboard() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="✅ Подтвердить", callback_data="stars_confirm",
+                              style="success")],
+        [InlineKeyboardButton(text="❌ Отмена", callback_data="stars_cancel",
+                              style="danger")]
     ])
 
 
@@ -108,26 +126,96 @@ def build_enter_amount_keyboard() -> InlineKeyboardMarkup:
     ])
 
 
-def stars_main_text(user_id: int) -> tuple[str, list]:
+# ─── Тексты ───────────────────────────────────────────────────────────────────
+
+def stars_main_text(user_id: int):
     balance = get_user_balance(user_id)
-    e1 = "⭐"; e2 = "⭐"; e3 = "⭐"
+    e1 = "⭐"; e2 = "⭐"; e3 = "⭐"; e4 = "⭐"
     line1 = f"{e1} Покупка Telegram Stars\n\n"
     line2 = f"Курс 1 {e2} = {STARS_RATE} RUB\n"
-    line3 = f"{e3} Ваш баланс: {balance:.2f} RUB"
-    text = line1 + line2 + line3
-
+    line3 = f"{e3} Ваш баланс: {balance:.2f} RUB\n\n"
+    line4 = f"{e4} Выберите, кому вы хотите приобрести звезды:"
+    text = line1 + line2 + line3 + line4
     entities = [
-        MessageEntity(type="custom_emoji", offset=0,
-                      length=utf16_len(e1), custom_emoji_id="5472256585323522641"),
+        MessageEntity(type="custom_emoji", offset=0, length=utf16_len(e1),
+                      custom_emoji_id="5472256585323522641"),
         MessageEntity(type="custom_emoji", offset=utf16_len(line1 + "Курс 1 "),
                       length=utf16_len(e2), custom_emoji_id="5346309121794659890"),
         MessageEntity(type="custom_emoji", offset=utf16_len(line1 + line2),
                       length=utf16_len(e3), custom_emoji_id="5377746319601324795"),
+        MessageEntity(type="custom_emoji", offset=utf16_len(line1 + line2 + line3),
+                      length=utf16_len(e4), custom_emoji_id="5346309121794659890"),
     ]
     return text, entities
 
 
-def stars_calc_text(price_line: str = "") -> tuple[str, list]:
+def stars_enter_text(user_id: int, recipient: str):
+    balance = get_user_balance(user_id)
+    e1 = "⭐"; e2 = "⭐"; e3 = "⭐"; e4 = "⭐"
+    line1 = f"Кому: {recipient}\n\n"
+    line2 = f"Курс 1 {e1} = {STARS_RATE} RUB\n"
+    line3 = f"{e2} Ваш баланс: {balance:.2f} RUB\n"
+    line4 = f"{e3} Минимум: {STARS_MIN}\n\n"
+    line5 = f"{e4} Введи количество звезд:"
+    text = line1 + line2 + line3 + line4 + line5
+    entities = [
+        MessageEntity(type="custom_emoji", offset=utf16_len(line1 + "Курс 1 "),
+                      length=utf16_len(e1), custom_emoji_id="5346309121794659890"),
+        MessageEntity(type="custom_emoji", offset=utf16_len(line1 + line2),
+                      length=utf16_len(e2), custom_emoji_id="5377746319601324795"),
+        MessageEntity(type="custom_emoji", offset=utf16_len(line1 + line2 + line3),
+                      length=utf16_len(e3), custom_emoji_id="5870609858520158157"),
+        MessageEntity(type="custom_emoji", offset=utf16_len(line1 + line2 + line3 + line4),
+                      length=utf16_len(e4), custom_emoji_id="5346309121794659890"),
+    ]
+    return text, entities
+
+
+def stars_no_funds_text(user_id: int, stars: int):
+    balance = get_user_balance(user_id)
+    required = round(stars * STARS_RATE, 2)
+    e1 = "⭐"; e2 = "⭐"; e3 = "⭐"; e4 = "⭐"
+    line1 = f"{e1} Недостаточно средств!\n\n"
+    line2 = f"{e2} Ваш баланс: {balance:.2f} RUB\n"
+    line3 = f"{e3} Требуется: {required:.2f} RUB\n\n"
+    line4 = f"{e4} Пополните баланс для продолжения"
+    text = line1 + line2 + line3 + line4
+    entities = [
+        MessageEntity(type="custom_emoji", offset=0, length=utf16_len(e1),
+                      custom_emoji_id="5447644880824181073"),
+        MessageEntity(type="custom_emoji", offset=utf16_len(line1),
+                      length=utf16_len(e2), custom_emoji_id="5289970176052179025"),
+        MessageEntity(type="custom_emoji", offset=utf16_len(line1 + line2),
+                      length=utf16_len(e3), custom_emoji_id="5289970176052179025"),
+        MessageEntity(type="custom_emoji", offset=utf16_len(line1 + line2 + line3),
+                      length=utf16_len(e4), custom_emoji_id="5870609858520158157"),
+    ]
+    return text, entities
+
+
+def stars_confirm_text(recipient: str, stars: int):
+    total_rub = round(stars * STARS_RATE, 2)
+    total_usd = round(total_rub / USD_RATE, 2)
+    e1 = "⭐"; e2 = "⭐"; e3 = "⭐"; e4 = "⭐"
+    line1 = f"{e1} Подтверждение\n\n"
+    line2 = f"{e2} Получатель: {recipient}\n"
+    line3 = f"{e3} Количество: {stars}\n"
+    line4 = f"{e4} Итого к оплате: {total_rub} RUB ({total_usd}$)"
+    text = line1 + line2 + line3 + line4
+    entities = [
+        MessageEntity(type="custom_emoji", offset=0, length=utf16_len(e1),
+                      custom_emoji_id="5260463209562776385"),
+        MessageEntity(type="custom_emoji", offset=utf16_len(line1),
+                      length=utf16_len(e2), custom_emoji_id="5870994129244131212"),
+        MessageEntity(type="custom_emoji", offset=utf16_len(line1 + line2),
+                      length=utf16_len(e3), custom_emoji_id="5346309121794659890"),
+        MessageEntity(type="custom_emoji", offset=utf16_len(line1 + line2 + line3),
+                      length=utf16_len(e4), custom_emoji_id="5377746319601324795"),
+    ]
+    return text, entities
+
+
+def stars_calc_text(price_line: str = ""):
     e1 = "⭐"; e2 = "⭐"; e3 = "⭐"
     quote = "Здесь ты можешь посмотреть цену перед покупкой"
     line1 = f"{e1} Калькулятор\n\n"
@@ -135,22 +223,18 @@ def stars_calc_text(price_line: str = "") -> tuple[str, list]:
     line3 = f"Курс 1 {e2} = {STARS_RATE} RUB\n"
     extra = f"{e3} Цена: {price_line} RUB" if price_line else ""
     text = line1 + line2 + line3 + extra
-
     entities = [
-        MessageEntity(type="custom_emoji", offset=0,
-                      length=utf16_len(e1), custom_emoji_id="5415756135925829889"),
-        MessageEntity(type="blockquote", offset=utf16_len(line1),
-                      length=utf16_len(quote)),
+        MessageEntity(type="custom_emoji", offset=0, length=utf16_len(e1),
+                      custom_emoji_id="5415756135925829889"),
+        MessageEntity(type="blockquote", offset=utf16_len(line1), length=utf16_len(quote)),
         MessageEntity(type="custom_emoji", offset=utf16_len(line1 + line2 + "Курс 1 "),
                       length=utf16_len(e2), custom_emoji_id="5346309121794659890"),
     ]
-
     if price_line:
         entities.append(MessageEntity(type="custom_emoji",
                                       offset=utf16_len(line1 + line2 + line3),
                                       length=utf16_len(e3),
                                       custom_emoji_id="5260463209562776385"))
-
     return text, entities
 
 
@@ -168,14 +252,12 @@ async def cmd_start(message: types.Message, state: FSMContext):
     user = message.from_user
     username = f"@{user.username}" if user.username else user.first_name
     balance = get_user_balance(user.id)
-
     e1 = "⭐"; e2 = "⭐"; e3 = "⭐"; e4 = "👇"
     greeting = f"{e1} Привет, {username}\n\n"
     line2    = f"{e2} У нас вы можете приобрести TG Stars и TG Premium.\n\n"
     line3    = f"{e3} Ваш текущий баланс: {balance:.2f} RUB\n\n"
     line4    = f"Выбери действие ниже {e4}"
     text = greeting + line2 + line3 + line4
-
     entities = [
         MessageEntity(type="custom_emoji", offset=0, length=utf16_len(e1),
                       custom_emoji_id="5269579312008299587"),
@@ -191,7 +273,6 @@ async def cmd_start(message: types.Message, state: FSMContext):
                       offset=utf16_len(greeting + line2 + line3 + "Выбери действие ниже "),
                       length=utf16_len(e4), custom_emoji_id="5193202823411546657"),
     ]
-
     if PHOTO_FILE_ID:
         await message.answer_photo(photo=PHOTO_FILE_ID, caption=text,
                                    reply_markup=build_main_keyboard(),
@@ -200,32 +281,19 @@ async def cmd_start(message: types.Message, state: FSMContext):
         await message.answer(text=text, reply_markup=build_main_keyboard(), entities=entities)
 
 
-# ─── Звёзды ───────────────────────────────────────────────────────────────────
+# ─── Назад на главную ─────────────────────────────────────────────────────────
 
-@dp.callback_query(lambda c: c.data == "buy_stars")
-async def buy_stars_menu(callback: types.CallbackQuery, state: FSMContext):
-    await state.clear()
-    text, entities = stars_main_text(callback.from_user.id)
-    await callback.message.edit_caption(caption=text,
-                                        reply_markup=build_stars_keyboard(calc_on=False),
-                                        caption_entities=entities)
-    await callback.answer()
-
-
-@dp.callback_query(lambda c: c.data == "back_to_main")
-async def back_to_main(callback: types.CallbackQuery, state: FSMContext):
+async def show_main(callback: types.CallbackQuery, state: FSMContext):
     await state.clear()
     user = callback.from_user
     username = f"@{user.username}" if user.username else user.first_name
     balance = get_user_balance(user.id)
-
     e1 = "⭐"; e2 = "⭐"; e3 = "⭐"; e4 = "👇"
     greeting = f"{e1} Привет, {username}\n\n"
     line2    = f"{e2} У нас вы можете приобрести TG Stars и TG Premium.\n\n"
     line3    = f"{e3} Ваш текущий баланс: {balance:.2f} RUB\n\n"
     line4    = f"Выбери действие ниже {e4}"
     text = greeting + line2 + line3 + line4
-
     entities = [
         MessageEntity(type="custom_emoji", offset=0, length=utf16_len(e1),
                       custom_emoji_id="5269579312008299587"),
@@ -241,12 +309,113 @@ async def back_to_main(callback: types.CallbackQuery, state: FSMContext):
                       offset=utf16_len(greeting + line2 + line3 + "Выбери действие ниже "),
                       length=utf16_len(e4), custom_emoji_id="5193202823411546657"),
     ]
+    await callback.message.edit_caption(caption=text, reply_markup=build_main_keyboard(),
+                                        caption_entities=entities)
 
-    await callback.message.edit_caption(caption=text,
-                                        reply_markup=build_main_keyboard(),
+
+@dp.callback_query(lambda c: c.data == "back_to_main")
+async def back_to_main(callback: types.CallbackQuery, state: FSMContext):
+    await show_main(callback, state)
+    await callback.answer()
+
+
+# ─── Звёзды ───────────────────────────────────────────────────────────────────
+
+@dp.callback_query(lambda c: c.data == "buy_stars")
+async def buy_stars_menu(callback: types.CallbackQuery, state: FSMContext):
+    await state.clear()
+    text, entities = stars_main_text(callback.from_user.id)
+    await callback.message.edit_caption(caption=text, reply_markup=build_who_keyboard(),
                                         caption_entities=entities)
     await callback.answer()
 
+
+@dp.callback_query(lambda c: c.data == "stars_who")
+async def stars_who(callback: types.CallbackQuery, state: FSMContext):
+    await state.clear()
+    text, entities = stars_main_text(callback.from_user.id)
+    await callback.message.edit_caption(caption=text, reply_markup=build_who_keyboard(),
+                                        caption_entities=entities)
+    await callback.answer()
+
+
+@dp.callback_query(lambda c: c.data == "stars_self")
+async def stars_self(callback: types.CallbackQuery, state: FSMContext):
+    user = callback.from_user
+    recipient = f"@{user.username}" if user.username else user.first_name
+    text, entities = stars_enter_text(user.id, recipient)
+    await callback.message.edit_caption(caption=text,
+                                        reply_markup=build_enter_stars_keyboard(),
+                                        caption_entities=entities)
+    await state.set_state(StarsStates.enter_stars_self)
+    await state.update_data(bot_msg_id=callback.message.message_id,
+                            recipient=recipient)
+    await callback.answer()
+
+
+@dp.callback_query(lambda c: c.data == "stars_friend")
+async def stars_friend(callback: types.CallbackQuery, state: FSMContext):
+    await callback.answer("Скоро будет доступно!", show_alert=False)
+
+
+# ─── Ввод количества звёзд ────────────────────────────────────────────────────
+
+@dp.message(StarsStates.enter_stars_self)
+async def process_stars(message: types.Message, state: FSMContext):
+    await message.delete()
+    data = await state.get_data()
+    bot_msg_id = data.get("bot_msg_id")
+    recipient = data.get("recipient", "")
+    user_id = message.from_user.id
+
+    try:
+        stars = int(message.text.strip())
+        if stars < STARS_MIN:
+            raise ValueError
+    except ValueError:
+        e = "⭐"
+        err_text = f"{e} Минимум {STARS_MIN} звёзд"
+        err_entities = [MessageEntity(type="custom_emoji", offset=0, length=utf16_len(e),
+                                      custom_emoji_id="5273914604752216432")]
+        err_msg = await message.answer(err_text, entities=err_entities)
+        await asyncio.sleep(2)
+        await err_msg.delete()
+        return
+
+    balance = get_user_balance(user_id)
+    required = round(stars * STARS_RATE, 2)
+
+    if balance < required:
+        text, entities = stars_no_funds_text(user_id, stars)
+        if bot_msg_id:
+            await bot.edit_message_caption(chat_id=message.chat.id, message_id=bot_msg_id,
+                                           caption=text,
+                                           reply_markup=build_enter_stars_keyboard(),
+                                           caption_entities=entities)
+    else:
+        await state.update_data(stars=stars)
+        text, entities = stars_confirm_text(recipient, stars)
+        if bot_msg_id:
+            await bot.edit_message_caption(chat_id=message.chat.id, message_id=bot_msg_id,
+                                           caption=text,
+                                           reply_markup=build_confirm_keyboard(),
+                                           caption_entities=entities)
+        await state.set_state(StarsStates.confirm_self)
+
+
+@dp.callback_query(lambda c: c.data == "stars_confirm")
+async def stars_confirm(callback: types.CallbackQuery, state: FSMContext):
+    # Здесь будет Fragment API — скажи что нужно
+    await callback.answer("Fragment API скоро будет подключён!", show_alert=True)
+
+
+@dp.callback_query(lambda c: c.data == "stars_cancel")
+async def stars_cancel(callback: types.CallbackQuery, state: FSMContext):
+    await show_main(callback, state)
+    await callback.answer()
+
+
+# ─── Калькулятор ──────────────────────────────────────────────────────────────
 
 @dp.callback_query(lambda c: c.data == "stars_calc_on")
 async def stars_calc_on(callback: types.CallbackQuery, state: FSMContext):
@@ -263,8 +432,7 @@ async def stars_calc_on(callback: types.CallbackQuery, state: FSMContext):
 async def stars_calc_off(callback: types.CallbackQuery, state: FSMContext):
     await state.clear()
     text, entities = stars_main_text(callback.from_user.id)
-    await callback.message.edit_caption(caption=text,
-                                        reply_markup=build_stars_keyboard(calc_on=False),
+    await callback.message.edit_caption(caption=text, reply_markup=build_who_keyboard(),
                                         caption_entities=entities)
     await callback.answer()
 
@@ -280,11 +448,9 @@ async def calc_stars(message: types.Message, state: FSMContext):
         price_line = str(price)
     except ValueError:
         return
-
     data = await state.get_data()
     bot_msg_id = data.get("bot_msg_id")
     text, entities = stars_calc_text(price_line)
-
     if bot_msg_id:
         await bot.edit_message_caption(chat_id=message.chat.id, message_id=bot_msg_id,
                                        caption=text,
@@ -301,12 +467,8 @@ async def top_up_menu(callback: types.CallbackQuery, state: FSMContext):
     line1 = "Выберите способ пополнения из предложенных:\n\n"
     line2 = f"{e1} СБП - оплата рублями через QR-код"
     text = line1 + line2
-
-    entities = [
-        MessageEntity(type="custom_emoji", offset=utf16_len(line1),
-                      length=utf16_len(e1), custom_emoji_id="5368446439800197476"),
-    ]
-
+    entities = [MessageEntity(type="custom_emoji", offset=utf16_len(line1),
+                              length=utf16_len(e1), custom_emoji_id="5368446439800197476")]
     await callback.message.edit_caption(caption=text,
                                         reply_markup=build_payment_method_keyboard(),
                                         caption_entities=entities)
@@ -321,7 +483,6 @@ async def pay_sbp(callback: types.CallbackQuery, state: FSMContext):
     line3 = f"{ei} Минимальное пополнение: 10 RUB\n\n"
     line4 = f"{ei} Введите сумму:"
     text = line1 + line2 + line3 + line4
-
     entities = [
         MessageEntity(type="custom_emoji", offset=utf16_len(line1),
                       length=utf16_len(ei), custom_emoji_id="5870609858520158157"),
@@ -330,7 +491,6 @@ async def pay_sbp(callback: types.CallbackQuery, state: FSMContext):
         MessageEntity(type="custom_emoji", offset=utf16_len(line1 + line2 + line3),
                       length=utf16_len(ei), custom_emoji_id="5289970176052179025"),
     ]
-
     await callback.message.edit_caption(caption=text,
                                         reply_markup=build_enter_amount_keyboard(),
                                         caption_entities=entities)
@@ -342,12 +502,12 @@ async def pay_sbp(callback: types.CallbackQuery, state: FSMContext):
 @dp.message(TopUpStates.waiting_amount)
 async def process_amount(message: types.Message, state: FSMContext):
     await message.delete()
-
     try:
         amount = float(message.text.replace(",", "."))
         if amount < MIN_AMOUNT:
             raise ValueError
     except ValueError:
+        e = "⭐"
         err_text = f"{e} Минимальное пополнение 10 RUB"
         err_entities = [MessageEntity(type="custom_emoji", offset=0, length=utf16_len(e),
                                       custom_emoji_id="5273914604752216432")]
@@ -355,16 +515,13 @@ async def process_amount(message: types.Message, state: FSMContext):
         await asyncio.sleep(2)
         await err_msg.delete()
         return
-
     total = round(amount * (1 + COMMISSION), 2)
-
     e1 = "⭐"; e2 = "⭐"; e3 = "⭐"; e4 = "👇"
     line1 = f"{e1} Готово!\n\n"
     line2 = f"{e2} Сумма к оплате: {total:.2f} RUB\n"
     line3 = f"{e3} Сумма к получению: {amount:.2f} RUB\n"
     line4 = f"{e4} Для оплаты нажмите кнопку ниже:"
     text = line1 + line2 + line3 + line4
-
     entities = [
         MessageEntity(type="custom_emoji", offset=0, length=utf16_len(e1),
                       custom_emoji_id="5260463209562776385"),
@@ -375,11 +532,9 @@ async def process_amount(message: types.Message, state: FSMContext):
         MessageEntity(type="custom_emoji", offset=utf16_len(line1 + line2 + line3),
                       length=utf16_len(e4), custom_emoji_id="5193202823411546657"),
     ]
-
     data = await state.get_data()
     bot_msg_id = data.get("bot_msg_id")
     await state.clear()
-
     if bot_msg_id:
         await bot.edit_message_caption(chat_id=message.chat.id, message_id=bot_msg_id,
                                        caption=text, caption_entities=entities)
@@ -399,4 +554,3 @@ async def main():
 
 if __name__ == "__main__":
     asyncio.run(main())
-    
