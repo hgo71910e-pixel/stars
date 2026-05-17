@@ -444,15 +444,13 @@ async def stars_confirm(callback: types.CallbackQuery, state: FSMContext):
 
     try:
         from fragment_api_lib.client import FragmentAPIClient
-        from fragment_api_lib.models import BuyStarsWithoutKYCRequest
         client = FragmentAPIClient()
-        req = BuyStarsWithoutKYCRequest(
-            username=username,
-            amount=stars,
-            seed=TON_SEED
-        )
         await asyncio.get_event_loop().run_in_executor(
-            None, lambda: client.buy_stars_without_kyc(req)
+            None, lambda: client.buy_stars_without_kyc(
+                username=username,
+                amount=stars,
+                seed=TON_SEED
+            )
         )
         # Списываем баланс
         await deduct_balance(user_id, total_rub)
