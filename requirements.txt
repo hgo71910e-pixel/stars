@@ -1,4 +1,4 @@
 aiogram==3.28.0
 python-dotenv==1.0.1
 asyncpg==0.29.0
-fragment-api-lib
+aiohttp==3.9.5
