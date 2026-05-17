@@ -19,6 +19,7 @@ load_dotenv()
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 PHOTO_FILE_ID = os.getenv("PHOTO_FILE_ID")
 TON_SEED = os.getenv("TON_SEED")
+ROBYNHOOD_API_KEY = os.getenv("ROBYNHOOD_API_KEY")
 
 bot = Bot(token=BOT_TOKEN)
 dp = Dispatcher(storage=MemoryStorage())
@@ -26,7 +27,7 @@ dp.include_router(admin_router)
 
 COMMISSION = 0.08
 MIN_AMOUNT = 10
-STARS_RATE = 1.25
+STARS_RATE = 1.40
 STARS_MIN = 50
 USD_RATE = 90.0
 
@@ -443,15 +444,22 @@ async def stars_confirm(callback: types.CallbackQuery, state: FSMContext):
     await callback.answer("⏳ Обрабатываем заказ...", show_alert=False)
 
     try:
-        from fragment_api_lib.client import FragmentAPIClient
-        client = FragmentAPIClient()
-        await asyncio.get_event_loop().run_in_executor(
-            None, lambda: client.buy_stars_without_kyc(
-                username=username,
-                amount=stars,
-                seed=TON_SEED
-            )
-        )
+        import aiohttp
+        async with aiohttp.ClientSession() as session:
+            async with session.post(
+                "https://robynhood.parssms.info/api/stars/send",
+                headers={
+                    "X-API-Key": ROBYNHOOD_API_KEY,
+                    "Content-Type": "application/json"
+                },
+                json={
+                    "username": username,
+                    "amount": stars
+                }
+            ) as resp:
+                result = await resp.json()
+                if not result.get("success"):
+                    raise Exception(result.get("message", "Unknown error"))
         # Списываем баланс
         await deduct_balance(user_id, total_rub)
         await add_log(user_id, "buy_stars", f"{stars} stars → @{username}")
