@@ -1,19 +1,25 @@
-import sqlite3
 import os
+import asyncpg
 from datetime import datetime
 
-DB_PATH = os.path.join(os.path.dirname(__file__), "bot.db")
+DATABASE_URL = os.getenv("DATABASE_URL")
+
+_pool = None
 
 
-def get_conn():
-    return sqlite3.connect(DB_PATH)
+async def get_pool():
+    global _pool
+    if _pool is None:
+        _pool = await asyncpg.create_pool(DATABASE_URL)
+    return _pool
 
 
-def init_db():
-    with get_conn() as conn:
-        conn.execute("""
+async def init_db():
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        await conn.execute("""
             CREATE TABLE IF NOT EXISTS users (
-                user_id     INTEGER PRIMARY KEY,
+                user_id     BIGINT PRIMARY KEY,
                 username    TEXT,
                 first_name  TEXT,
                 joined_at   TEXT,
@@ -22,111 +28,116 @@ def init_db():
                 blocked     INTEGER DEFAULT 0
             )
         """)
-        conn.execute("""
+        await conn.execute("""
             CREATE TABLE IF NOT EXISTS logs (
-                id          INTEGER PRIMARY KEY AUTOINCREMENT,
-                user_id     INTEGER,
+                id          SERIAL PRIMARY KEY,
+                user_id     BIGINT,
                 action      TEXT,
                 detail      TEXT,
                 created_at  TEXT
             )
         """)
-        conn.commit()
 
 
-def upsert_user(user_id: int, username: str, first_name: str):
-    with get_conn() as conn:
-        existing = conn.execute("SELECT user_id FROM users WHERE user_id=?", (user_id,)).fetchone()
+async def upsert_user(user_id: int, username: str, first_name: str):
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        existing = await conn.fetchrow("SELECT user_id FROM users WHERE user_id=$1", user_id)
         if not existing:
-            conn.execute(
-                "INSERT INTO users (user_id, username, first_name, joined_at) VALUES (?,?,?,?)",
-                (user_id, username, first_name, datetime.now().isoformat())
+            await conn.execute(
+                "INSERT INTO users (user_id, username, first_name, joined_at) VALUES ($1,$2,$3,$4)",
+                user_id, username, first_name, datetime.now().isoformat()
             )
-            conn.commit()
         else:
-            conn.execute(
-                "UPDATE users SET username=?, first_name=? WHERE user_id=?",
-                (username, first_name, user_id)
+            await conn.execute(
+                "UPDATE users SET username=$1, first_name=$2 WHERE user_id=$3",
+                username, first_name, user_id
             )
-            conn.commit()
 
 
-def get_user(user_id: int) -> dict | None:
-    with get_conn() as conn:
-        row = conn.execute("SELECT * FROM users WHERE user_id=?", (user_id,)).fetchone()
-        if not row:
-            return None
-        cols = ["user_id", "username", "first_name", "joined_at", "balance", "spent", "blocked"]
-        return dict(zip(cols, row))
+async def get_user(user_id: int) -> dict | None:
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        row = await conn.fetchrow("SELECT * FROM users WHERE user_id=$1", user_id)
+        return dict(row) if row else None
 
 
-def get_all_users() -> list[dict]:
-    with get_conn() as conn:
-        rows = conn.execute("SELECT * FROM users ORDER BY joined_at DESC").fetchall()
-        cols = ["user_id", "username", "first_name", "joined_at", "balance", "spent", "blocked"]
-        return [dict(zip(cols, r)) for r in rows]
+async def get_all_users() -> list[dict]:
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        rows = await conn.fetch("SELECT * FROM users ORDER BY joined_at DESC")
+        return [dict(r) for r in rows]
 
 
-def get_balance(user_id: int) -> float:
-    with get_conn() as conn:
-        row = conn.execute("SELECT balance FROM users WHERE user_id=?", (user_id,)).fetchone()
-        return row[0] if row else 0.0
+async def get_balance(user_id: int) -> float:
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        row = await conn.fetchrow("SELECT balance FROM users WHERE user_id=$1", user_id)
+        return row["balance"] if row else 0.0
 
 
-def set_balance(user_id: int, amount: float):
-    with get_conn() as conn:
-        conn.execute("UPDATE users SET balance=? WHERE user_id=?", (amount, user_id))
-        conn.commit()
+async def set_balance(user_id: int, amount: float):
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        await conn.execute("UPDATE users SET balance=$1 WHERE user_id=$2", amount, user_id)
 
 
-def add_balance(user_id: int, amount: float):
-    with get_conn() as conn:
-        conn.execute("UPDATE users SET balance=balance+? WHERE user_id=?", (amount, user_id))
-        conn.commit()
-
-
-def deduct_balance(user_id: int, amount: float):
-    with get_conn() as conn:
-        conn.execute(
-            "UPDATE users SET balance=balance-?, spent=spent+? WHERE user_id=?",
-            (amount, amount, user_id)
+async def add_balance(user_id: int, amount: float):
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        await conn.execute(
+            "UPDATE users SET balance=balance+$1 WHERE user_id=$2", amount, user_id
         )
-        conn.commit()
 
 
-def set_blocked(user_id: int, blocked: bool):
-    with get_conn() as conn:
-        conn.execute("UPDATE users SET blocked=? WHERE user_id=?", (int(blocked), user_id))
-        conn.commit()
-
-
-def is_blocked(user_id: int) -> bool:
-    with get_conn() as conn:
-        row = conn.execute("SELECT blocked FROM users WHERE user_id=?", (user_id,)).fetchone()
-        return bool(row[0]) if row else False
-
-
-def add_log(user_id: int, action: str, detail: str = ""):
-    with get_conn() as conn:
-        conn.execute(
-            "INSERT INTO logs (user_id, action, detail, created_at) VALUES (?,?,?,?)",
-            (user_id, action, detail, datetime.now().isoformat())
+async def deduct_balance(user_id: int, amount: float):
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        await conn.execute(
+            "UPDATE users SET balance=balance-$1, spent=spent+$1 WHERE user_id=$2",
+            amount, user_id
         )
-        conn.commit()
 
 
-def get_logs(user_id: int, limit: int = 10) -> list[dict]:
-    with get_conn() as conn:
-        rows = conn.execute(
-            "SELECT action, detail, created_at FROM logs WHERE user_id=? ORDER BY id DESC LIMIT ?",
-            (user_id, limit)
-        ).fetchall()
-        return [{"action": r[0], "detail": r[1], "at": r[2][:16]} for r in rows]
+async def set_blocked(user_id: int, blocked: bool):
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        await conn.execute(
+            "UPDATE users SET blocked=$1 WHERE user_id=$2", int(blocked), user_id
+        )
 
 
-def get_stats() -> dict:
-    with get_conn() as conn:
-        total = conn.execute("SELECT COUNT(*) FROM users").fetchone()[0]
-        blocked = conn.execute("SELECT COUNT(*) FROM users WHERE blocked=1").fetchone()[0]
-        total_spent = conn.execute("SELECT SUM(spent) FROM users").fetchone()[0] or 0.0
+async def is_blocked(user_id: int) -> bool:
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        row = await conn.fetchrow("SELECT blocked FROM users WHERE user_id=$1", user_id)
+        return bool(row["blocked"]) if row else False
+
+
+async def add_log(user_id: int, action: str, detail: str = ""):
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        await conn.execute(
+            "INSERT INTO logs (user_id, action, detail, created_at) VALUES ($1,$2,$3,$4)",
+            user_id, action, detail, datetime.now().isoformat()
+        )
+
+
+async def get_logs(user_id: int, limit: int = 10) -> list[dict]:
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        rows = await conn.fetch(
+            "SELECT action, detail, created_at FROM logs WHERE user_id=$1 ORDER BY id DESC LIMIT $2",
+            user_id, limit
+        )
+        return [{"action": r["action"], "detail": r["detail"], "at": r["created_at"][:16]} for r in rows]
+
+
+async def get_stats() -> dict:
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        total = await conn.fetchval("SELECT COUNT(*) FROM users")
+        blocked = await conn.fetchval("SELECT COUNT(*) FROM users WHERE blocked=1")
+        total_spent = await conn.fetchval("SELECT SUM(spent) FROM users") or 0.0
         return {"total": total, "blocked": blocked, "total_spent": total_spent}
+        
