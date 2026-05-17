@@ -119,7 +119,7 @@ def build_enter_amount_keyboard() -> InlineKeyboardMarkup:
 
 # ─── Тексты ───────────────────────────────────────────────────────────────────
 
-def start_text(username: str, user_id: int):
+async def start_text(username: str, user_id: int):
     balance = await get_balance(user_id)
     e1 = "⭐"; e2 = "⭐"; e3 = "⭐"; e4 = "👇"
     greeting = f"{e1} Привет, {username}\n\n"
@@ -145,7 +145,7 @@ def start_text(username: str, user_id: int):
     return text, entities
 
 
-def stars_main_text(user_id: int):
+async def stars_main_text(user_id: int):
     balance = await get_balance(user_id)
     e1 = "⭐"; e2 = "⭐"; e3 = "⭐"; e4 = "⭐"
     line1 = f"{e1} Покупка Telegram Stars\n\n"
@@ -166,7 +166,7 @@ def stars_main_text(user_id: int):
     return text, entities
 
 
-def stars_enter_text(user_id: int, recipient: str):
+async def stars_enter_text(user_id: int, recipient: str):
     balance = await get_balance(user_id)
     e1 = "⭐"; e2 = "⭐"; e3 = "⭐"; e4 = "⭐"
     line1 = f"Кому: {recipient}\n\n"
@@ -188,7 +188,7 @@ def stars_enter_text(user_id: int, recipient: str):
     return text, entities
 
 
-def stars_no_funds_text(user_id: int, stars: int):
+async def stars_no_funds_text(user_id: int, stars: int):
     balance = await get_balance(user_id)
     required = round(stars * STARS_RATE, 2)
     e1 = "⭐"; e2 = "⭐"; e3 = "⭐"; e4 = "⭐"
@@ -261,7 +261,7 @@ async def show_main(callback: types.CallbackQuery, state: FSMContext):
     await state.clear()
     user = callback.from_user
     username = f"@{user.username}" if user.username else user.first_name
-    text, entities = start_text(username, user.id)
+    text, entities = await start_text(username, user.id)
     await callback.message.edit_caption(caption=text, reply_markup=build_main_keyboard(),
                                         caption_entities=entities)
 
@@ -283,7 +283,7 @@ async def cmd_start(message: types.Message, state: FSMContext):
     await upsert_user(user.id, user.username or "", user.first_name)
     await add_log(user.id, "start")
     username = f"@{user.username}" if user.username else user.first_name
-    text, entities = start_text(username, user.id)
+    text, entities = await start_text(username, user.id)
     if PHOTO_FILE_ID:
         await message.answer_photo(photo=PHOTO_FILE_ID, caption=text,
                                    reply_markup=build_main_keyboard(),
@@ -303,7 +303,7 @@ async def back_to_main(callback: types.CallbackQuery, state: FSMContext):
 @dp.callback_query(lambda c: c.data == "buy_stars")
 async def buy_stars_menu(callback: types.CallbackQuery, state: FSMContext):
     await state.clear()
-    text, entities = stars_main_text(callback.from_user.id)
+    text, entities = await stars_main_text(callback.from_user.id)
     await callback.message.edit_caption(caption=text, reply_markup=build_who_keyboard(),
                                         caption_entities=entities)
     await callback.answer()
@@ -312,7 +312,7 @@ async def buy_stars_menu(callback: types.CallbackQuery, state: FSMContext):
 @dp.callback_query(lambda c: c.data == "stars_who")
 async def stars_who(callback: types.CallbackQuery, state: FSMContext):
     await state.clear()
-    text, entities = stars_main_text(callback.from_user.id)
+    text, entities = await stars_main_text(callback.from_user.id)
     await callback.message.edit_caption(caption=text, reply_markup=build_who_keyboard(),
                                         caption_entities=entities)
     await callback.answer()
@@ -322,7 +322,7 @@ async def stars_who(callback: types.CallbackQuery, state: FSMContext):
 async def stars_self(callback: types.CallbackQuery, state: FSMContext):
     user = callback.from_user
     recipient = f"@{user.username}" if user.username else user.first_name
-    text, entities = stars_enter_text(user.id, recipient)
+    text, entities = await stars_enter_text(user.id, recipient)
     await callback.message.edit_caption(caption=text,
                                         reply_markup=build_enter_stars_keyboard(),
                                         caption_entities=entities)
@@ -355,7 +355,7 @@ async def stars_calc_off(callback: types.CallbackQuery, state: FSMContext):
     user = callback.from_user
     if not recipient:
         recipient = f"@{user.username}" if user.username else user.first_name
-    text, entities = stars_enter_text(user.id, recipient)
+    text, entities = await stars_enter_text(user.id, recipient)
     await callback.message.edit_caption(caption=text,
                                         reply_markup=build_enter_stars_keyboard(calc_on=False),
                                         caption_entities=entities)
@@ -411,7 +411,7 @@ async def process_stars(message: types.Message, state: FSMContext):
     required = round(stars * STARS_RATE, 2)
 
     if balance < required:
-        text, entities = stars_no_funds_text(user_id, stars)
+        text, entities = await stars_no_funds_text(user_id, stars)
         if bot_msg_id:
             await bot.edit_message_caption(chat_id=message.chat.id, message_id=bot_msg_id,
                                            caption=text,
