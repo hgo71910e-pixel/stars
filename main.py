@@ -447,7 +447,7 @@ async def stars_confirm(callback: types.CallbackQuery, state: FSMContext):
         import aiohttp, uuid
         async with aiohttp.ClientSession() as session:
             async with session.post(
-                "https://robynhood.parssms.info/api/purchasing",
+                "https://robynhood.parssms.info/api/purchase",
                 headers={
                     "X-API-Key": ROBYNHOOD_API_KEY,
                     "Content-Type": "application/json"
