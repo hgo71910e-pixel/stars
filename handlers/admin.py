@@ -56,7 +56,7 @@ async def cmd_admin(message: types.Message):
 async def adm_stats(callback: types.CallbackQuery):
     if not is_admin(callback.from_user):
         return
-    s = get_stats()
+    s = await get_stats()
     text = (
         f"📊 <b>Статистика</b>\n\n"
         f"👥 Всего пользователей: <b>{s['total']}</b>\n"
@@ -78,7 +78,7 @@ async def adm_users(callback: types.CallbackQuery):
         return
     page = int(callback.data.split("_")[-1])
     per = 8
-    users = get_all_users()
+    users = await get_all_users()
     total = len(users)
     chunk = users[page * per:(page + 1) * per]
 
@@ -131,7 +131,7 @@ async def adm_find_user(message: types.Message, state: FSMContext):
         await message.answer("❌ Неверный ID")
         return
 
-    u = get_user(uid)
+    u = await get_user(uid)
     if not u:
         await message.answer("❌ Пользователь не найден")
         await state.clear()
@@ -156,8 +156,8 @@ async def adm_block(callback: types.CallbackQuery):
     if not is_admin(callback.from_user):
         return
     uid = int(callback.data.split("_")[-1])
-    set_blocked(uid, True)
-    u = get_user(uid)
+    await set_blocked(uid, True)
+    u = await get_user(uid)
     name = f"@{u['username']}" if u['username'] else u['first_name']
     await callback.message.edit_reply_markup(reply_markup=user_kb(uid, True))
     await callback.answer(f"🚫 {name} заблокирован")
@@ -168,8 +168,8 @@ async def adm_unblock(callback: types.CallbackQuery):
     if not is_admin(callback.from_user):
         return
     uid = int(callback.data.split("_")[-1])
-    set_blocked(uid, False)
-    u = get_user(uid)
+    await set_blocked(uid, False)
+    u = await get_user(uid)
     name = f"@{u['username']}" if u['username'] else u['first_name']
     await callback.message.edit_reply_markup(reply_markup=user_kb(uid, False))
     await callback.answer(f"✅ {name} разблокирован")
@@ -199,8 +199,8 @@ async def adm_give_amount(message: types.Message, state: FSMContext):
         return
     data = await state.get_data()
     uid = data["target_uid"]
-    add_balance(uid, amount)
-    u = get_user(uid)
+    await add_balance(uid, amount)
+    u = await get_user(uid)
     name = f"@{u['username']}" if u['username'] else u['first_name']
     await message.answer(f"✅ Выдано {amount:.2f} RUB → {name}\nНовый баланс: {u['balance'] + amount:.2f} RUB")
     await state.clear()
@@ -213,7 +213,7 @@ async def adm_logs(callback: types.CallbackQuery):
     if not is_admin(callback.from_user):
         return
     uid = int(callback.data.split("_")[-1])
-    logs = get_logs(uid, 10)
+    logs = await get_logs(uid, 10)
     if not logs:
         await callback.answer("Логов нет", show_alert=True)
         return
@@ -235,3 +235,4 @@ async def adm_back(callback: types.CallbackQuery, state: FSMContext):
     await state.clear()
     await callback.message.edit_text("🛠 Админ панель", reply_markup=admin_main_kb())
     await callback.answer()
+    
