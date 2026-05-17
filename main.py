@@ -18,6 +18,7 @@ load_dotenv()
 
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 PHOTO_FILE_ID = os.getenv("PHOTO_FILE_ID")
+TON_SEED = os.getenv("TON_SEED")
 
 bot = Bot(token=BOT_TOKEN)
 dp = Dispatcher(storage=MemoryStorage())
@@ -430,7 +431,47 @@ async def process_stars(message: types.Message, state: FSMContext):
 
 @dp.callback_query(lambda c: c.data == "stars_confirm")
 async def stars_confirm(callback: types.CallbackQuery, state: FSMContext):
-    await callback.answer("Fragment API скоро будет подключён!", show_alert=True)
+    data = await state.get_data()
+    stars = data.get("stars")
+    recipient = data.get("recipient", "")
+    user_id = callback.from_user.id
+
+    # Убираем @ из username для Fragment
+    username = recipient.lstrip("@")
+    total_rub = round(stars * STARS_RATE, 2)
+
+    await callback.answer("⏳ Обрабатываем заказ...", show_alert=False)
+
+    try:
+        from fragment_stars import buy_stars
+        await asyncio.get_event_loop().run_in_executor(
+            None, lambda: buy_stars(username=username, amount=stars, seed=TON_SEED)
+        )
+        # Списываем баланс
+        await deduct_balance(user_id, total_rub)
+        await add_log(user_id, "buy_stars", f"{stars} stars → @{username}")
+
+        e1 = "⭐"
+        text = f"{e1} Готово! {stars} звёзд отправлены на @{username}"
+        entities = [MessageEntity(type="custom_emoji", offset=0, length=utf16_len(e1),
+                                  custom_emoji_id="5260463209562776385")]
+        await state.clear()
+        await callback.message.edit_caption(
+            caption=text,
+            reply_markup=build_main_keyboard(),
+            caption_entities=entities
+        )
+    except Exception as e:
+        await add_log(user_id, "buy_stars_error", str(e))
+        e1 = "⭐"
+        text = f"{e1} Ошибка при покупке. Попробуйте позже или обратитесь в поддержку @tntks"
+        entities = [MessageEntity(type="custom_emoji", offset=0, length=utf16_len(e1),
+                                  custom_emoji_id="5447644880824181073")]
+        await callback.message.edit_caption(
+            caption=text,
+            reply_markup=build_main_keyboard(),
+            caption_entities=entities
+        )
 
 
 @dp.callback_query(lambda c: c.data == "stars_cancel")
