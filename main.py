@@ -470,7 +470,7 @@ async def stars_confirm(callback: types.CallbackQuery, state: FSMContext):
         await add_log(user_id, "buy_stars", f"{stars} stars → @{username}")
 
         e1 = "⭐"
-        text = f"{e1} Готово! {stars} звёзд отправлены на @{username}"
+        text = f"{e1} Готово! {stars} звёзд отправлены пользователю @{username}"
         entities = [MessageEntity(type="custom_emoji", offset=0, length=utf16_len(e1),
                                   custom_emoji_id="5260463209562776385")]
         await state.clear()
@@ -481,11 +481,14 @@ async def stars_confirm(callback: types.CallbackQuery, state: FSMContext):
         )
     except Exception as e:
         await add_log(user_id, "buy_stars_error", str(e))
-        error_text = str(e)[:200]
+        e1 = "⭐"
+        err_text = f"{e1} Ошибка при покупке. Попробуйте позже или обратитесь в поддержку @tntks"
+        err_entities = [MessageEntity(type="custom_emoji", offset=0, length=utf16_len(e1),
+                                      custom_emoji_id="5447644880824181073")]
         await callback.message.edit_caption(
-            caption=f"❌ Ошибка:\n<code>{error_text}</code>",
+            caption=err_text,
             reply_markup=build_main_keyboard(),
-            parse_mode="HTML"
+            caption_entities=err_entities
         )
 
 
