@@ -120,7 +120,7 @@ def build_enter_amount_keyboard() -> InlineKeyboardMarkup:
 # ─── Тексты ───────────────────────────────────────────────────────────────────
 
 def start_text(username: str, user_id: int):
-    balance = get_balance(user_id)
+    balance = await get_balance(user_id)
     e1 = "⭐"; e2 = "⭐"; e3 = "⭐"; e4 = "👇"
     greeting = f"{e1} Привет, {username}\n\n"
     line2    = f"{e2} У нас вы можете приобрести TG Stars и TG Premium.\n\n"
@@ -146,7 +146,7 @@ def start_text(username: str, user_id: int):
 
 
 def stars_main_text(user_id: int):
-    balance = get_balance(user_id)
+    balance = await get_balance(user_id)
     e1 = "⭐"; e2 = "⭐"; e3 = "⭐"; e4 = "⭐"
     line1 = f"{e1} Покупка Telegram Stars\n\n"
     line2 = f"Курс 1 {e2} = {STARS_RATE} RUB\n"
@@ -167,7 +167,7 @@ def stars_main_text(user_id: int):
 
 
 def stars_enter_text(user_id: int, recipient: str):
-    balance = get_balance(user_id)
+    balance = await get_balance(user_id)
     e1 = "⭐"; e2 = "⭐"; e3 = "⭐"; e4 = "⭐"
     line1 = f"Кому: {recipient}\n\n"
     line2 = f"Курс 1 {e1} = {STARS_RATE} RUB\n"
@@ -189,7 +189,7 @@ def stars_enter_text(user_id: int, recipient: str):
 
 
 def stars_no_funds_text(user_id: int, stars: int):
-    balance = get_balance(user_id)
+    balance = await get_balance(user_id)
     required = round(stars * STARS_RATE, 2)
     e1 = "⭐"; e2 = "⭐"; e3 = "⭐"; e4 = "⭐"
     line1 = f"{e1} Недостаточно средств!\n\n"
@@ -278,10 +278,10 @@ async def get_photo_id(message: types.Message):
 async def cmd_start(message: types.Message, state: FSMContext):
     await state.clear()
     user = message.from_user
-    if is_blocked(user.id):
+    if await is_blocked(user.id):
         return
-    upsert_user(user.id, user.username or "", user.first_name)
-    add_log(user.id, "start")
+    await upsert_user(user.id, user.username or "", user.first_name)
+    await add_log(user.id, "start")
     username = f"@{user.username}" if user.username else user.first_name
     text, entities = start_text(username, user.id)
     if PHOTO_FILE_ID:
@@ -407,7 +407,7 @@ async def process_stars(message: types.Message, state: FSMContext):
         await err_msg.delete()
         return
 
-    balance = get_balance(user_id)
+    balance = await get_balance(user_id)
     required = round(stars * STARS_RATE, 2)
 
     if balance < required:
@@ -577,7 +577,7 @@ async def handle_stub_buttons(callback: types.CallbackQuery):
 
 
 async def main():
-    init_db()
+    await init_db()
     await bot.set_my_commands([
         types.BotCommand(command="start", description="Меню")
     ])
