@@ -14,28 +14,25 @@ async def init_db():
     pool = await asyncpg.create_pool(DATABASE_URL)
 
     async with pool.acquire() as conn:
+        # Создаём таблицу users если её нет
         await conn.execute("""
             CREATE TABLE IF NOT EXISTS users (
-                user_id       BIGINT PRIMARY KEY,
-                username      TEXT DEFAULT '',
-                first_name    TEXT DEFAULT '',
-                balance       NUMERIC(12,2) DEFAULT 0,
-                total_balance NUMERIC(12,2) DEFAULT 0,
-                is_blocked    BOOLEAN DEFAULT FALSE,
-                registered_at TIMESTAMPTZ DEFAULT NOW()
+                user_id    BIGINT PRIMARY KEY,
+                username   TEXT DEFAULT '',
+                first_name TEXT DEFAULT '',
+                balance    NUMERIC(12,2) DEFAULT 0
             )
         """)
 
-        await conn.execute("""
-            ALTER TABLE users
-                ADD COLUMN IF NOT EXISTS registered_at TIMESTAMPTZ DEFAULT NOW()
-        """)
+        # Добавляем все колонки которых может не быть в старой БД
+        for sql in [
+            "ALTER TABLE users ADD COLUMN IF NOT EXISTS total_balance NUMERIC(12,2) DEFAULT 0",
+            "ALTER TABLE users ADD COLUMN IF NOT EXISTS is_blocked    BOOLEAN      DEFAULT FALSE",
+            "ALTER TABLE users ADD COLUMN IF NOT EXISTS registered_at TIMESTAMPTZ  DEFAULT NOW()",
+        ]:
+            await conn.execute(sql)
 
-        await conn.execute("""
-            ALTER TABLE users
-                ADD COLUMN IF NOT EXISTS total_balance NUMERIC(12,2) DEFAULT 0
-        """)
-
+        # Создаём таблицу logs если её нет
         await conn.execute("""
             CREATE TABLE IF NOT EXISTS logs (
                 id         SERIAL PRIMARY KEY,
@@ -152,9 +149,8 @@ async def get_all_users() -> list:
               FROM users
              ORDER BY registered_at DESC
         """)
-        result = []
-        for r in rows:
-            result.append({
+        return [
+            {
                 "user_id":    r["user_id"],
                 "username":   r["username"],
                 "first_name": r["first_name"],
@@ -162,8 +158,9 @@ async def get_all_users() -> list:
                 "spent":      float(r["total_balance"]),
                 "blocked":    r["is_blocked"],
                 "joined_at":  str(r["registered_at"]),
-            })
-        return result
+            }
+            for r in rows
+        ]
 
 
 async def get_user(user_id: int):
@@ -224,23 +221,26 @@ async def get_stats() -> dict:
 async def set_blocked(user_id: int, blocked: bool):
     """Заблокировать / разблокировать пользователя."""
     async with pool.acquire() as conn:
-        await conn.execute("""
-            UPDATE users SET is_blocked = $2 WHERE user_id = $1
-        """, user_id, blocked)
+        await conn.execute(
+            "UPDATE users SET is_blocked = $2 WHERE user_id = $1",
+            user_id, blocked
+        )
 
 
 async def set_balance(user_id: int, amount: float):
     """Установить баланс пользователю (точное значение)."""
     async with pool.acquire() as conn:
-        await conn.execute("""
-            UPDATE users SET balance = $2 WHERE user_id = $1
-        """, user_id, amount)
+        await conn.execute(
+            "UPDATE users SET balance = $2 WHERE user_id = $1",
+            user_id, amount
+        )
 
 
 async def add_balance(user_id: int, amount: float):
     """Пополнить баланс пользователю."""
     async with pool.acquire() as conn:
-        await conn.execute("""
-            UPDATE users SET balance = balance + $2 WHERE user_id = $1
-        """, user_id, amount)
-                
+        await conn.execute(
+            "UPDATE users SET balance = balance + $2 WHERE user_id = $1",
+            user_id, amount
+    )
+            
