@@ -660,7 +660,7 @@ async def my_profile(callback: types.CallbackQuery):
     line1 = f"{e_id}ID: {user_id}\n"
     line2 = f"{e_user}Username: {username}\n\n"
     line3 = f"{e_bal}Текущий баланс: {balance:.2f} RUB\n"
-    line4 = f"{e_tbal}Общий баланс: {total_balance:.2f} RUB\n\n"
+    line4 = f"{e_tbal}Улетело: {total_balance:.2f} RUB\n\n"
     line5 = f"{e_ord}Всего заказов: {orders}\n"
     line6 = f"{e_star}Всего куплено звезд: {stars}\n\n"
     line7 = f"{e_date}Дата регистрации: {reg_str}"
