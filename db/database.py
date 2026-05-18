@@ -14,7 +14,7 @@ async def init_db():
     pool = await asyncpg.create_pool(DATABASE_URL)
 
     async with pool.acquire() as conn:
-        # Создаём таблицу users если её нет
+        # ── Таблица users ──────────────────────────────────────────────────────
         await conn.execute("""
             CREATE TABLE IF NOT EXISTS users (
                 user_id    BIGINT PRIMARY KEY,
@@ -24,7 +24,6 @@ async def init_db():
             )
         """)
 
-        # Добавляем все колонки которых может не быть в старой БД
         for sql in [
             "ALTER TABLE users ADD COLUMN IF NOT EXISTS total_balance NUMERIC(12,2) DEFAULT 0",
             "ALTER TABLE users ADD COLUMN IF NOT EXISTS is_blocked    BOOLEAN      DEFAULT FALSE",
@@ -32,16 +31,20 @@ async def init_db():
         ]:
             await conn.execute(sql)
 
-        # Создаём таблицу logs если её нет
+        # ── Таблица logs ───────────────────────────────────────────────────────
         await conn.execute("""
             CREATE TABLE IF NOT EXISTS logs (
                 id         SERIAL PRIMARY KEY,
                 user_id    BIGINT,
                 action     TEXT,
-                details    TEXT DEFAULT '',
                 created_at TIMESTAMPTZ DEFAULT NOW()
             )
         """)
+
+        for sql in [
+            "ALTER TABLE logs ADD COLUMN IF NOT EXISTS details TEXT DEFAULT ''",
+        ]:
+            await conn.execute(sql)
 
 
 # ─── Базовые функции ──────────────────────────────────────────────────────────
@@ -94,7 +97,6 @@ async def is_blocked(user_id: int) -> bool:
 # ─── Функции для профиля ──────────────────────────────────────────────────────
 
 async def get_user_info(user_id: int) -> dict:
-    """Полная информация о пользователе для экрана профиля."""
     async with pool.acquire() as conn:
         row = await conn.fetchrow("""
             SELECT user_id, username, first_name,
@@ -106,7 +108,6 @@ async def get_user_info(user_id: int) -> dict:
 
 
 async def get_total_orders(user_id: int) -> int:
-    """Количество успешных покупок звёзд."""
     async with pool.acquire() as conn:
         row = await conn.fetchrow("""
             SELECT COUNT(*) AS cnt
@@ -118,9 +119,6 @@ async def get_total_orders(user_id: int) -> int:
 
 
 async def get_total_stars(user_id: int) -> int:
-    """Суммарное количество купленных звёзд.
-    details формат: '150 stars -> @username'
-    """
     async with pool.acquire() as conn:
         rows = await conn.fetch("""
             SELECT details
@@ -141,7 +139,6 @@ async def get_total_stars(user_id: int) -> int:
 # ─── Функции для админки ──────────────────────────────────────────────────────
 
 async def get_all_users() -> list:
-    """Все пользователи для списка в админке."""
     async with pool.acquire() as conn:
         rows = await conn.fetch("""
             SELECT user_id, username, first_name,
@@ -164,7 +161,6 @@ async def get_all_users() -> list:
 
 
 async def get_user(user_id: int):
-    """Один пользователь для карточки в админке."""
     async with pool.acquire() as conn:
         row = await conn.fetchrow("""
             SELECT user_id, username, first_name,
@@ -186,7 +182,6 @@ async def get_user(user_id: int):
 
 
 async def get_logs(user_id: int, limit: int = 10) -> list:
-    """Последние N логов пользователя для админки."""
     async with pool.acquire() as conn:
         rows = await conn.fetch("""
             SELECT action, details, created_at
@@ -206,7 +201,6 @@ async def get_logs(user_id: int, limit: int = 10) -> list:
 
 
 async def get_stats() -> dict:
-    """Общая статистика для админки."""
     async with pool.acquire() as conn:
         total   = await conn.fetchval("SELECT COUNT(*) FROM users")
         blocked = await conn.fetchval("SELECT COUNT(*) FROM users WHERE is_blocked = TRUE")
@@ -219,7 +213,6 @@ async def get_stats() -> dict:
 
 
 async def set_blocked(user_id: int, blocked: bool):
-    """Заблокировать / разблокировать пользователя."""
     async with pool.acquire() as conn:
         await conn.execute(
             "UPDATE users SET is_blocked = $2 WHERE user_id = $1",
@@ -228,7 +221,6 @@ async def set_blocked(user_id: int, blocked: bool):
 
 
 async def set_balance(user_id: int, amount: float):
-    """Установить баланс пользователю (точное значение)."""
     async with pool.acquire() as conn:
         await conn.execute(
             "UPDATE users SET balance = $2 WHERE user_id = $1",
@@ -237,10 +229,8 @@ async def set_balance(user_id: int, amount: float):
 
 
 async def add_balance(user_id: int, amount: float):
-    """Пополнить баланс пользователю."""
     async with pool.acquire() as conn:
         await conn.execute(
             "UPDATE users SET balance = balance + $2 WHERE user_id = $1",
             user_id, amount
-    )
-            
+        )
