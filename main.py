@@ -13,7 +13,7 @@ from dotenv import load_dotenv
 
 from db.database import (
     init_db, upsert_user, get_balance, deduct_balance, add_log, is_blocked,
-    get_user_info, get_total_orders, get_total_stars,
+    get_user_info, get_total_orders, get_total_stars, get_total_premium,
     get_ref_stats
 )
 from handlers.admin import router as admin_router
@@ -699,39 +699,48 @@ async def my_profile(callback: types.CallbackQuery):
     info          = await get_user_info(user_id)
     orders        = await get_total_orders(user_id)
     stars         = await get_total_stars(user_id)
+    premium       = await get_total_premium(user_id)
     balance       = float(info.get("balance", 0) or 0)
     total_balance = float(info.get("total_balance", 0) or 0)
     registered_at = info.get("registered_at")
     reg_str       = registered_at.strftime("%d.%m.%Y") if registered_at else "—"
     username      = f"@{user.username}" if user.username else user.first_name
 
-    e_id   = "⭐"; e_user = "⭐"; e_bal = "⭐"
-    e_tbal = "⭐"; e_ord  = "⭐"; e_star = "⭐"; e_date = "⭐"
+    e_title = "⭐"
+    e_id    = "⭐"; e_user = "⭐"; e_bal = "⭐"
+    e_tbal  = "⭐"; e_ord  = "⭐"; e_star = "⭐"; e_prem = "⭐"; e_date = "⭐"
 
+    line0 = f"{e_title} Мой профиль\n\n"
     line1 = f"{e_id}ID: {user_id}\n"
     line2 = f"{e_user}Username: {username}\n\n"
     line3 = f"{e_bal}Текущий баланс: {balance:.2f} RUB\n"
-    line4 = f"{e_tbal}Улетело: {total_balance:.2f} RUB\n\n"
+    line4 = f"Улетело: {total_balance:.2f} RUB\n\n"
     line5 = f"{e_ord}Всего заказов: {orders}\n"
-    line6 = f"{e_star}Всего куплено звезд: {stars}\n\n"
-    line7 = f"{e_date}Дата регистрации: {reg_str}"
-    text  = line1 + line2 + line3 + line4 + line5 + line6 + line7
+    line6 = f"{e_star}Всего куплено звезд: {stars}\n"
+    line7 = f"{e_prem}Всего куплено премиум: {premium}\n\n"
+    line8 = f"{e_date}Дата регистрации: {reg_str}"
+    text  = line0 + line1 + line2 + line3 + line4 + line5 + line6 + line7 + line8
 
     entities = [
         MessageEntity(type="custom_emoji", offset=0,
+                      length=utf16_len(e_title), custom_emoji_id="5870994129244131212"),
+        MessageEntity(type="custom_emoji", offset=utf16_len(line0),
                       length=utf16_len(e_id), custom_emoji_id="5936017305585586269"),
-        MessageEntity(type="custom_emoji", offset=utf16_len(line1),
+        MessageEntity(type="custom_emoji", offset=utf16_len(line0 + line1),
                       length=utf16_len(e_user), custom_emoji_id="5771887475421090729"),
-        MessageEntity(type="custom_emoji", offset=utf16_len(line1 + line2),
+        MessageEntity(type="custom_emoji", offset=utf16_len(line0 + line1 + line2),
                       length=utf16_len(e_bal), custom_emoji_id="5289970176052179025"),
-        MessageEntity(type="custom_emoji", offset=utf16_len(line1 + line2 + line3),
-                      length=utf16_len(e_tbal), custom_emoji_id="5289970176052179025"),
-        MessageEntity(type="custom_emoji", offset=utf16_len(line1 + line2 + line3 + line4),
+        MessageEntity(type="custom_emoji",
+                      offset=utf16_len(line0 + line1 + line2 + line3 + line4),
                       length=utf16_len(e_ord), custom_emoji_id="5346267284518239633"),
-        MessageEntity(type="custom_emoji", offset=utf16_len(line1 + line2 + line3 + line4 + line5),
+        MessageEntity(type="custom_emoji",
+                      offset=utf16_len(line0 + line1 + line2 + line3 + line4 + line5),
                       length=utf16_len(e_star), custom_emoji_id="5346309121794659890"),
         MessageEntity(type="custom_emoji",
-                      offset=utf16_len(line1 + line2 + line3 + line4 + line5 + line6),
+                      offset=utf16_len(line0 + line1 + line2 + line3 + line4 + line5 + line6),
+                      length=utf16_len(e_prem), custom_emoji_id="5274026806477857971"),
+        MessageEntity(type="custom_emoji",
+                      offset=utf16_len(line0 + line1 + line2 + line3 + line4 + line5 + line6 + line7),
                       length=utf16_len(e_date), custom_emoji_id="5967412305338568701"),
     ]
 
