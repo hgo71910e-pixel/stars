@@ -25,9 +25,11 @@ async def init_db():
         """)
 
         for sql in [
-            "ALTER TABLE users ADD COLUMN IF NOT EXISTS total_balance NUMERIC(12,2) DEFAULT 0",
-            "ALTER TABLE users ADD COLUMN IF NOT EXISTS is_blocked    BOOLEAN      DEFAULT FALSE",
-            "ALTER TABLE users ADD COLUMN IF NOT EXISTS registered_at TIMESTAMPTZ  DEFAULT NOW()",
+            "ALTER TABLE users ADD COLUMN IF NOT EXISTS total_balance  NUMERIC(12,2) DEFAULT 0",
+            "ALTER TABLE users ADD COLUMN IF NOT EXISTS is_blocked     BOOLEAN       DEFAULT FALSE",
+            "ALTER TABLE users ADD COLUMN IF NOT EXISTS registered_at  TIMESTAMPTZ   DEFAULT NOW()",
+            "ALTER TABLE users ADD COLUMN IF NOT EXISTS referred_by    BIGINT        DEFAULT NULL",
+            "ALTER TABLE users ADD COLUMN IF NOT EXISTS ref_balance    NUMERIC(12,2) DEFAULT 0",
         ]:
             await conn.execute(sql)
 
@@ -49,15 +51,23 @@ async def init_db():
 
 # ─── Базовые функции ──────────────────────────────────────────────────────────
 
-async def upsert_user(user_id: int, username: str, first_name: str):
+async def upsert_user(user_id: int, username: str, first_name: str, referred_by: int = None):
     async with pool.acquire() as conn:
-        await conn.execute("""
-            INSERT INTO users (user_id, username, first_name)
-            VALUES ($1, $2, $3)
-            ON CONFLICT (user_id) DO UPDATE
-                SET username   = EXCLUDED.username,
-                    first_name = EXCLUDED.first_name
-        """, user_id, username, first_name)
+        # Проверяем, есть ли уже пользователь
+        exists = await conn.fetchval(
+            "SELECT user_id FROM users WHERE user_id = $1", user_id
+        )
+        if exists:
+            # Просто обновляем имя/юзернейм, не трогаем referred_by
+            await conn.execute("""
+                UPDATE users SET username = $2, first_name = $3 WHERE user_id = $1
+            """, user_id, username, first_name)
+        else:
+            # Новый пользователь — записываем реферера если есть
+            await conn.execute("""
+                INSERT INTO users (user_id, username, first_name, referred_by)
+                VALUES ($1, $2, $3, $4)
+            """, user_id, username, first_name, referred_by)
 
 
 async def get_balance(user_id: int) -> float:
@@ -70,12 +80,26 @@ async def get_balance(user_id: int) -> float:
 
 async def deduct_balance(user_id: int, amount: float):
     async with pool.acquire() as conn:
+        # Списываем у покупателя
         await conn.execute("""
             UPDATE users
                SET balance       = balance - $2,
                    total_balance = total_balance + $2
              WHERE user_id = $1
         """, user_id, amount)
+
+        # Начисляем 5% рефереру если есть
+        row = await conn.fetchrow(
+            "SELECT referred_by FROM users WHERE user_id = $1", user_id
+        )
+        if row and row["referred_by"]:
+            ref_reward = round(amount * 0.05, 2)
+            await conn.execute("""
+                UPDATE users
+                   SET balance     = balance + $2,
+                       ref_balance = ref_balance + $2
+                 WHERE user_id = $1
+            """, row["referred_by"], ref_reward)
 
 
 async def add_log(user_id: int, action: str, details: str = ""):
@@ -110,10 +134,8 @@ async def get_user_info(user_id: int) -> dict:
 async def get_total_orders(user_id: int) -> int:
     async with pool.acquire() as conn:
         row = await conn.fetchrow("""
-            SELECT COUNT(*) AS cnt
-              FROM logs
-             WHERE user_id = $1
-               AND action = 'buy_stars'
+            SELECT COUNT(*) AS cnt FROM logs
+             WHERE user_id = $1 AND action = 'buy_stars'
         """, user_id)
         return int(row["cnt"]) if row else 0
 
@@ -121,10 +143,8 @@ async def get_total_orders(user_id: int) -> int:
 async def get_total_stars(user_id: int) -> int:
     async with pool.acquire() as conn:
         rows = await conn.fetch("""
-            SELECT details
-              FROM logs
-             WHERE user_id = $1
-               AND action = 'buy_stars'
+            SELECT details FROM logs
+             WHERE user_id = $1 AND action = 'buy_stars'
         """, user_id)
         total = 0
         for r in rows:
@@ -134,6 +154,32 @@ async def get_total_stars(user_id: int) -> int:
             except Exception:
                 pass
         return total
+
+
+# ─── Реферальная система ──────────────────────────────────────────────────────
+
+async def get_ref_stats(user_id: int) -> dict:
+    """Количество рефералов и суммарная прибыль с них."""
+    async with pool.acquire() as conn:
+        count = await conn.fetchval(
+            "SELECT COUNT(*) FROM users WHERE referred_by = $1", user_id
+        )
+        ref_balance = await conn.fetchval(
+            "SELECT COALESCE(ref_balance, 0) FROM users WHERE user_id = $1", user_id
+        )
+        return {
+            "count":       int(count or 0),
+            "ref_balance": float(ref_balance or 0),
+        }
+
+
+async def get_referred_by(user_id: int):
+    """Получить ID реферера пользователя."""
+    async with pool.acquire() as conn:
+        row = await conn.fetchrow(
+            "SELECT referred_by FROM users WHERE user_id = $1", user_id
+        )
+        return row["referred_by"] if row else None
 
 
 # ─── Функции для админки ──────────────────────────────────────────────────────
@@ -184,8 +230,7 @@ async def get_user(user_id: int):
 async def get_logs(user_id: int, limit: int = 10) -> list:
     async with pool.acquire() as conn:
         rows = await conn.fetch("""
-            SELECT action, details, created_at
-              FROM logs
+            SELECT action, details, created_at FROM logs
              WHERE user_id = $1
              ORDER BY created_at DESC
              LIMIT $2
