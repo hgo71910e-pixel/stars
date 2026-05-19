@@ -140,6 +140,15 @@ async def get_total_orders(user_id: int) -> int:
         return int(row["cnt"]) if row else 0
 
 
+async def get_total_premium(user_id: int) -> int:
+    async with pool.acquire() as conn:
+        row = await conn.fetchrow("""
+            SELECT COUNT(*) AS cnt FROM logs
+             WHERE user_id = $1 AND action = 'buy_premium'
+        """, user_id)
+        return int(row["cnt"]) if row else 0
+
+
 async def get_total_stars(user_id: int) -> int:
     async with pool.acquire() as conn:
         rows = await conn.fetch("""
