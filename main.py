@@ -13,26 +13,35 @@ from dotenv import load_dotenv
 
 from db.database import (
     init_db, upsert_user, get_balance, deduct_balance, add_log, is_blocked,
-    get_user_info, get_total_orders, get_total_stars
+    get_user_info, get_total_orders, get_total_stars,
+    get_ref_stats
 )
 from handlers.admin import router as admin_router
 
 load_dotenv()
 
-BOT_TOKEN          = os.getenv("BOT_TOKEN")
-PHOTO_FILE_ID      = os.getenv("PHOTO_FILE_ID")
-TON_SEED           = os.getenv("TON_SEED")
-ROBYNHOOD_API_KEY  = os.getenv("ROBYNHOOD_API_KEY")
+BOT_TOKEN         = os.getenv("BOT_TOKEN")
+PHOTO_FILE_ID     = os.getenv("PHOTO_FILE_ID")
+TON_SEED          = os.getenv("TON_SEED")
+ROBYNHOOD_API_KEY = os.getenv("ROBYNHOOD_API_KEY")
 
 bot = Bot(token=BOT_TOKEN)
 dp  = Dispatcher(storage=MemoryStorage())
 dp.include_router(admin_router)
 
-COMMISSION  = 0.08
-MIN_AMOUNT  = 10
-STARS_RATE  = 1.40
-STARS_MIN   = 50
-USD_RATE    = 90.0
+COMMISSION = 0.08
+MIN_AMOUNT = 10
+STARS_RATE = 1.40
+STARS_MIN  = 50
+USD_RATE   = 90.0
+REF_PCT    = 5
+
+# Цены на Premium — пока 0, заполнишь когда подключишь МРКТ
+PREMIUM_PRICES = {
+    "3":  0,
+    "6":  0,
+    "12": 0,
+}
 
 
 class TopUpStates(StatesGroup):
@@ -40,9 +49,9 @@ class TopUpStates(StatesGroup):
 
 
 class StarsStates(StatesGroup):
-    calculator      = State()
+    calculator       = State()
     enter_stars_self = State()
-    confirm_self    = State()
+    confirm_self     = State()
 
 
 class ReviewStates(StatesGroup):
@@ -50,7 +59,7 @@ class ReviewStates(StatesGroup):
 
 
 class PremiumStates(StatesGroup):
-    waiting_period = State()
+    confirm_self = State()
 
 
 def utf16_len(s: str) -> int:
@@ -132,6 +141,32 @@ def build_payment_method_keyboard() -> InlineKeyboardMarkup:
 def build_enter_amount_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=[
         [back_btn("top_up")]
+    ])
+
+
+def build_premium_who_keyboard() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="Себе", callback_data="premium_self"),
+         InlineKeyboardButton(text="Другу", callback_data="premium_friend")],
+        [back_btn("back_to_main")]
+    ])
+
+
+def build_premium_period_keyboard() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="3 месяца", callback_data="premium_period_3")],
+        [InlineKeyboardButton(text="6 месяцев", callback_data="premium_period_6")],
+        [InlineKeyboardButton(text="12 месяцев", callback_data="premium_period_12")],
+        [back_btn("buy_premium")]
+    ])
+
+
+def build_premium_confirm_keyboard() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="✅ Подтвердить", callback_data="premium_confirm",
+                              style="success")],
+        [InlineKeyboardButton(text="❌ Отмена", callback_data="buy_premium",
+                              style="danger")]
     ])
 
 
@@ -264,11 +299,11 @@ def stars_calc_text(price_line: str = ""):
     e1 = "⭐"; e2 = "⭐"; e3 = "⭐"
     quote = "Здесь ты можешь посмотреть цену перед покупкой"
 
-    line1  = f"{e1} Калькулятор\n\n"
-    line2  = f"{quote}\n\n"
-    line3  = f"Курс 1 {e2} = {STARS_RATE} RUB\n"
-    extra  = f"{e3} Цена: {price_line} RUB" if price_line else ""
-    text   = line1 + line2 + line3 + extra
+    line1 = f"{e1} Калькулятор\n\n"
+    line2 = f"{quote}\n\n"
+    line3 = f"Курс 1 {e2} = {STARS_RATE} RUB\n"
+    extra = f"{e3} Цена: {price_line} RUB" if price_line else ""
+    text  = line1 + line2 + line3 + extra
 
     entities = [
         MessageEntity(type="custom_emoji", offset=0, length=utf16_len(e1),
@@ -315,8 +350,21 @@ async def cmd_start(message: types.Message, state: FSMContext):
     user = message.from_user
     if await is_blocked(user.id):
         return
-    await upsert_user(user.id, user.username or "", user.first_name)
+
+    referred_by = None
+    if message.text and len(message.text.split()) > 1:
+        param = message.text.split()[1]
+        if param.startswith("ref_"):
+            try:
+                ref_id = int(param[4:])
+                if ref_id != user.id:
+                    referred_by = ref_id
+            except ValueError:
+                pass
+
+    await upsert_user(user.id, user.username or "", user.first_name, referred_by)
     await add_log(user.id, "start")
+
     username = f"@{user.username}" if user.username else user.first_name
     text, entities = await start_text(username, user.id)
     if PHOTO_FILE_ID:
@@ -446,7 +494,7 @@ async def process_stars(message: types.Message, state: FSMContext):
         if stars < STARS_MIN:
             raise ValueError
     except ValueError:
-        e       = "⭐"
+        e        = "⭐"
         err_text = f"{e} Минимум {STARS_MIN} звёзд"
         err_entities = [MessageEntity(type="custom_emoji", offset=0, length=utf16_len(e),
                                       custom_emoji_id="5273914604752216432")]
@@ -501,9 +549,9 @@ async def stars_confirm(callback: types.CallbackQuery, state: FSMContext):
                     "Content-Type": "application/json"
                 },
                 json={
-                    "product_type": "stars",
-                    "recipient":    username,
-                    "quantity":     str(stars),
+                    "product_type":    "stars",
+                    "recipient":       username,
+                    "quantity":        str(stars),
                     "idempotency_key": str(uuid.uuid4())
                 }
             ) as resp:
@@ -552,7 +600,7 @@ async def stars_cancel(callback: types.CallbackQuery, state: FSMContext):
 @dp.callback_query(lambda c: c.data == "top_up")
 async def top_up_menu(callback: types.CallbackQuery, state: FSMContext):
     await state.clear()
-    e1   = "⭐"
+    e1    = "⭐"
     line1 = "Выберите способ пополнения из предложенных:\n\n"
     line2 = f"{e1} СБП - оплата рублями через QR-код"
     text  = line1 + line2
@@ -629,7 +677,7 @@ async def process_amount(message: types.Message, state: FSMContext):
         MessageEntity(type="custom_emoji", offset=utf16_len(line1 + line2),
                       length=utf16_len(e3), custom_emoji_id="5289970176052179025"),
         MessageEntity(type="custom_emoji", offset=utf16_len(line1 + line2 + line3),
-                      length=utf16_len(e4), custom_emoji_id="5193202823411546657"),
+                      length=utf16_len(e4), custom_emoji_id="5193202823411546757"),
     ]
     data       = await state.get_data()
     bot_msg_id = data.get("bot_msg_id")
@@ -657,14 +705,8 @@ async def my_profile(callback: types.CallbackQuery):
     reg_str       = registered_at.strftime("%d.%m.%Y") if registered_at else "—"
     username      = f"@{user.username}" if user.username else user.first_name
 
-    # Плейсхолдеры — все одинаковые символы, offset считается по ним
-    e_id   = "⭐"
-    e_user = "⭐"
-    e_bal  = "⭐"
-    e_tbal = "⭐"
-    e_ord  = "⭐"
-    e_star = "⭐"
-    e_date = "⭐"
+    e_id   = "⭐"; e_user = "⭐"; e_bal = "⭐"
+    e_tbal = "⭐"; e_ord  = "⭐"; e_star = "⭐"; e_date = "⭐"
 
     line1 = f"{e_id}ID: {user_id}\n"
     line2 = f"{e_user}Username: {username}\n\n"
@@ -676,60 +718,187 @@ async def my_profile(callback: types.CallbackQuery):
     text  = line1 + line2 + line3 + line4 + line5 + line6 + line7
 
     entities = [
-        MessageEntity(
-            type="custom_emoji",
-            offset=0,
-            length=utf16_len(e_id),
-            custom_emoji_id="5936017305585586269"
-        ),
-        MessageEntity(
-            type="custom_emoji",
-            offset=utf16_len(line1),
-            length=utf16_len(e_user),
-            custom_emoji_id="5771887475421090729"
-        ),
-        MessageEntity(
-            type="custom_emoji",
-            offset=utf16_len(line1 + line2),
-            length=utf16_len(e_bal),
-            custom_emoji_id="5289970176052179025"
-        ),
-        MessageEntity(
-            type="custom_emoji",
-            offset=utf16_len(line1 + line2 + line3),
-            length=utf16_len(e_tbal),
-            custom_emoji_id="5289970176052179025"
-        ),
-        MessageEntity(
-            type="custom_emoji",
-            offset=utf16_len(line1 + line2 + line3 + line4),
-            length=utf16_len(e_ord),
-            custom_emoji_id="5346267284518239633"
-        ),
-        MessageEntity(
-            type="custom_emoji",
-            offset=utf16_len(line1 + line2 + line3 + line4 + line5),
-            length=utf16_len(e_star),
-            custom_emoji_id="5346309121794659890"
-        ),
-        MessageEntity(
-            type="custom_emoji",
-            offset=utf16_len(line1 + line2 + line3 + line4 + line5 + line6),
-            length=utf16_len(e_date),
-            custom_emoji_id="5967412305338568701"
-        ),
+        MessageEntity(type="custom_emoji", offset=0,
+                      length=utf16_len(e_id), custom_emoji_id="5936017305585586269"),
+        MessageEntity(type="custom_emoji", offset=utf16_len(line1),
+                      length=utf16_len(e_user), custom_emoji_id="5771887475421090729"),
+        MessageEntity(type="custom_emoji", offset=utf16_len(line1 + line2),
+                      length=utf16_len(e_bal), custom_emoji_id="5289970176052179025"),
+        MessageEntity(type="custom_emoji", offset=utf16_len(line1 + line2 + line3),
+                      length=utf16_len(e_tbal), custom_emoji_id="5289970176052179025"),
+        MessageEntity(type="custom_emoji", offset=utf16_len(line1 + line2 + line3 + line4),
+                      length=utf16_len(e_ord), custom_emoji_id="5346267284518239633"),
+        MessageEntity(type="custom_emoji", offset=utf16_len(line1 + line2 + line3 + line4 + line5),
+                      length=utf16_len(e_star), custom_emoji_id="5346309121794659890"),
+        MessageEntity(type="custom_emoji",
+                      offset=utf16_len(line1 + line2 + line3 + line4 + line5 + line6),
+                      length=utf16_len(e_date), custom_emoji_id="5967412305338568701"),
     ]
 
-    kb = InlineKeyboardMarkup(inline_keyboard=[
-        [back_btn("back_to_main")]
-    ])
+    kb = InlineKeyboardMarkup(inline_keyboard=[[back_btn("back_to_main")]])
+    await callback.message.edit_caption(caption=text, reply_markup=kb,
+                                        caption_entities=entities)
+    await callback.answer()
+
+
+# ─── Рефка ────────────────────────────────────────────────────────────────────
+
+@dp.callback_query(lambda c: c.data == "referral")
+async def show_referral(callback: types.CallbackQuery):
+    user    = callback.from_user
+    user_id = user.id
+
+    stats   = await get_ref_stats(user_id)
+    count   = stats["count"]
+    profit  = stats["ref_balance"]
+
+    bot_info = await bot.get_me()
+    ref_link = f"https://t.me/{bot_info.username}?start=ref_{user_id}"
+
+    e1 = "⭐"; e2 = "⭐"; e3 = "⭐"; e4 = "⭐"; e5 = "⭐"
+
+    line1 = f"{e1} Рефка\n\n"
+    line2 = f"Получай +{REF_PCT}%  за каждую покупку реферала!\n\n"
+    line3 = f"{e2} Приглашено рефералов: {count}\n"
+    line4 = f"{e3} Прибыль от реф. программы: {profit:.2f} RUB\n\n"
+    line5 = f"{e4} Ваша реферальная ссылка:\n"
+    line6 = f"{ref_link}\n\n"
+    line7 = f"{e5}Вывод доступен через поддержку"
+    text  = line1 + line2 + line3 + line4 + line5 + line6 + line7
+
+    entities = [
+        MessageEntity(type="custom_emoji", offset=0,
+                      length=utf16_len(e1), custom_emoji_id="5870772616305839506"),
+        MessageEntity(type="custom_emoji", offset=utf16_len(line1 + line2),
+                      length=utf16_len(e2), custom_emoji_id="5870695289714643076"),
+        MessageEntity(type="custom_emoji", offset=utf16_len(line1 + line2 + line3),
+                      length=utf16_len(e3), custom_emoji_id="5289970176052179025"),
+        MessageEntity(type="custom_emoji", offset=utf16_len(line1 + line2 + line3 + line4),
+                      length=utf16_len(e4), custom_emoji_id="6028171274939797252"),
+        MessageEntity(type="custom_emoji",
+                      offset=utf16_len(line1 + line2 + line3 + line4 + line5 + line6),
+                      length=utf16_len(e5), custom_emoji_id="5879814368572478751"),
+        MessageEntity(type="url",
+                      offset=utf16_len(line1 + line2 + line3 + line4 + line5),
+                      length=utf16_len(ref_link)),
+    ]
+
+    kb = InlineKeyboardMarkup(inline_keyboard=[[back_btn("back_to_main")]])
+    await callback.message.edit_caption(caption=text, reply_markup=kb,
+                                        caption_entities=entities)
+    await callback.answer()
+
+
+# ─── Премиум ──────────────────────────────────────────────────────────────────
+
+@dp.callback_query(lambda c: c.data == "buy_premium")
+async def buy_premium_menu(callback: types.CallbackQuery, state: FSMContext):
+    await state.clear()
+    e1 = "⭐"; e2 = "⭐"
+
+    line1 = f"{e1} Покупка Telegram Premium\n\n"
+    line2 = f"{e2} Выберите, кому вы хотите приобрести премиум:"
+    text  = line1 + line2
+
+    entities = [
+        MessageEntity(type="custom_emoji", offset=0,
+                      length=utf16_len(e1), custom_emoji_id="5472256585323522641"),
+        MessageEntity(type="custom_emoji", offset=utf16_len(line1),
+                      length=utf16_len(e2), custom_emoji_id="5274026806477857971"),
+    ]
 
     await callback.message.edit_caption(
         caption=text,
-        reply_markup=kb,
+        reply_markup=build_premium_who_keyboard(),
         caption_entities=entities
     )
     await callback.answer()
+
+
+@dp.callback_query(lambda c: c.data == "premium_self")
+async def premium_self(callback: types.CallbackQuery, state: FSMContext):
+    user = callback.from_user
+
+    # Проверка Premium через Telegram
+    if user.is_premium:
+        e = "⭐"
+        err_text     = f"{e} Ошибка! У пользователя уже есть Telegram Premium!"
+        err_entities = [MessageEntity(type="custom_emoji", offset=0, length=utf16_len(e),
+                                      custom_emoji_id="5273914604752216432")]
+        err_msg = await callback.message.answer(err_text, entities=err_entities)
+        await callback.answer()
+        await asyncio.sleep(1)
+        await err_msg.delete()
+        return
+
+    # Нет Premium — показываем выбор периода
+    e1 = "⭐"
+    line1 = f"{e1} Выберите период подписки:"
+    text  = line1
+
+    entities = [
+        MessageEntity(type="custom_emoji", offset=0,
+                      length=utf16_len(e1), custom_emoji_id="5274026806477857971"),
+    ]
+
+    await state.update_data(bot_msg_id=callback.message.message_id)
+    await callback.message.edit_caption(
+        caption=text,
+        reply_markup=build_premium_period_keyboard(),
+        caption_entities=entities
+    )
+    await callback.answer()
+
+
+@dp.callback_query(lambda c: c.data == "premium_friend")
+async def premium_friend(callback: types.CallbackQuery):
+    await callback.answer("Скоро будет доступно!", show_alert=False)
+
+
+@dp.callback_query(lambda c: c.data.startswith("premium_period_"))
+async def premium_period(callback: types.CallbackQuery, state: FSMContext):
+    months = callback.data.split("_")[-1]  # "3", "6" или "12"
+    price  = PREMIUM_PRICES[months]
+    user   = callback.from_user
+
+    await state.update_data(months=months, price=price)
+
+    e1 = "⭐"; e2 = "⭐"; e3 = "⭐"; e4 = "⭐"
+
+    line1 = f"{e1} Подтверждение\n\n"
+    line2 = f"{e2} Получатель: @{user.username or user.first_name}\n"
+    line3 = f"{e3} Период: {months} мес.\n"
+    line4 = f"{e4} Итого к оплате: {price} RUB"
+    text  = line1 + line2 + line3 + line4
+
+    entities = [
+        MessageEntity(type="custom_emoji", offset=0,
+                      length=utf16_len(e1), custom_emoji_id="5260463209562776385"),
+        MessageEntity(type="custom_emoji", offset=utf16_len(line1),
+                      length=utf16_len(e2), custom_emoji_id="5870994129244131212"),
+        MessageEntity(type="custom_emoji", offset=utf16_len(line1 + line2),
+                      length=utf16_len(e3), custom_emoji_id="5274026806477857971"),
+        MessageEntity(type="custom_emoji", offset=utf16_len(line1 + line2 + line3),
+                      length=utf16_len(e4), custom_emoji_id="5377746319601324795"),
+    ]
+
+    await callback.message.edit_caption(
+        caption=text,
+        reply_markup=build_premium_confirm_keyboard(),
+        caption_entities=entities
+    )
+    await state.set_state(PremiumStates.confirm_self)
+    await callback.answer()
+
+
+@dp.callback_query(lambda c: c.data == "premium_confirm")
+async def premium_confirm(callback: types.CallbackQuery, state: FSMContext):
+    # TODO: подключить МРКТ API здесь
+    # data = await state.get_data()
+    # months = data.get("months")
+    # price  = data.get("price")
+    await state.clear()
+    await callback.answer("Скоро будет доступно!", show_alert=True)
 
 
 # ─── Информация ───────────────────────────────────────────────────────────────
@@ -769,15 +938,13 @@ async def show_info(callback: types.CallbackQuery):
                       url="https://telegra.ph/Polzovatelskoe-soglashenie-04-01-19"),
     ]
 
-    kb = InlineKeyboardMarkup(inline_keyboard=[
-        [back_btn("back_to_main")]
-    ])
+    kb = InlineKeyboardMarkup(inline_keyboard=[[back_btn("back_to_main")]])
     await callback.message.edit_caption(caption=text, reply_markup=kb,
                                         caption_entities=entities)
     await callback.answer()
 
 
-# ─── Заглушки ─────────────────────────────────────────────────────────────────
+# ─── Отзывы ───────────────────────────────────────────────────────────────────
 
 @dp.callback_query(lambda c: c.data == "reviews")
 async def show_reviews(callback: types.CallbackQuery, state: FSMContext):
@@ -785,7 +952,7 @@ async def show_reviews(callback: types.CallbackQuery, state: FSMContext):
     line1 = f"{e1} Отзывы\n\n"
     line2 = f"{e2} Посмотреть все отзывы можно тут\n"
     line3 = f"{e3} Следующим сообщением можешь оставить отзыв, он окажется там"
-    text = line1 + line2 + line3
+    text  = line1 + line2 + line3
 
     e_len = utf16_len("⭐") + utf16_len(" ")
     entities = [
@@ -814,7 +981,6 @@ async def receive_review(message: types.Message, state: FSMContext):
     user     = message.from_user
     username = f"@{user.username}" if user.username else user.first_name
 
-    # Отправляем отзыв админу
     await bot.send_message(
         ADMIN_ID,
         f"📝 Новый отзыв от {username} (<code>{user.id}</code>):\n\n{message.text}",
@@ -824,14 +990,12 @@ async def receive_review(message: types.Message, state: FSMContext):
     await message.delete()
     await state.clear()
 
-    # Показываем подтверждение
     e1 = "⭐"
-    conf_text = f"{e1} Спасибо! Твой отзыв отправлен на проверку."
+    conf_text     = f"{e1} Спасибо! Твой отзыв отправлен на проверку."
     conf_entities = [MessageEntity(type="custom_emoji", offset=0, length=utf16_len(e1),
                                    custom_emoji_id="5260463209562776385")]
     conf_msg = await message.answer(conf_text, entities=conf_entities)
 
-    # Через 2 сек удаляем и показываем главную
     await asyncio.sleep(2)
     await conf_msg.delete()
 
@@ -844,86 +1008,9 @@ async def receive_review(message: types.Message, state: FSMContext):
         await message.answer(text=text, reply_markup=build_main_keyboard(), entities=entities)
 
 
-# ─── Премиум ──────────────────────────────────────────────────────────────────
+# ─── Заглушки ─────────────────────────────────────────────────────────────────
 
-def build_premium_who_keyboard() -> InlineKeyboardMarkup:
-    return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="Себе", callback_data="premium_self"),
-         InlineKeyboardButton(text="Другу", callback_data="premium_friend")],
-        [back_btn("back_to_main")]
-    ])
-
-
-def build_premium_period_keyboard() -> InlineKeyboardMarkup:
-    return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="3 месяца", callback_data="premium_buy_3"),
-         InlineKeyboardButton(text="6 месяцев", callback_data="premium_buy_6")],
-        [InlineKeyboardButton(text="12 месяцев", callback_data="premium_buy_12")],
-        [back_btn("buy_premium")]
-    ])
-
-
-@dp.callback_query(lambda c: c.data == "buy_premium")
-async def buy_premium_menu(callback: types.CallbackQuery, state: FSMContext):
-    await state.clear()
-    e1 = "⭐"; e2 = "⭐"
-    line1 = f"{e1} Покупка Telegram Premium\n\n"
-    line2 = f"{e2} Выберите, кому вы хотите приобрести премиум:"
-    text = line1 + line2
-    entities = [
-        MessageEntity(type="custom_emoji", offset=0, length=utf16_len(e1),
-                      custom_emoji_id="5472256585323522641"),
-        MessageEntity(type="custom_emoji", offset=utf16_len(line1),
-                      length=utf16_len(e2), custom_emoji_id="5274026806477857971"),
-    ]
-    await callback.message.edit_caption(caption=text,
-                                        reply_markup=build_premium_who_keyboard(),
-                                        caption_entities=entities)
-    await callback.answer()
-
-
-@dp.callback_query(lambda c: c.data == "premium_self")
-async def premium_self(callback: types.CallbackQuery, state: FSMContext):
-    user = callback.from_user
-
-    if user.is_premium:
-        e = "⭐"
-        err_text = f"{e} Ошибка! У пользователя уже есть Telegram Premium!"
-        err_entities = [MessageEntity(type="custom_emoji", offset=0, length=utf16_len(e),
-                                      custom_emoji_id="5273914604752216432")]
-        err_msg = await callback.message.answer(err_text, entities=err_entities)
-        await callback.answer()
-        await asyncio.sleep(1)
-        await err_msg.delete()
-        return
-
-    e1 = "⭐"
-    text = f"{e1} Выберите период подписки:"
-    entities = [MessageEntity(type="custom_emoji", offset=0, length=utf16_len(e1),
-                              custom_emoji_id="5274026806477857971")]
-    await callback.message.edit_caption(caption=text,
-                                        reply_markup=build_premium_period_keyboard(),
-                                        caption_entities=entities)
-    recipient = f"@{user.username}" if user.username else user.first_name
-    await state.update_data(recipient=recipient, bot_msg_id=callback.message.message_id)
-    await callback.answer()
-
-
-@dp.callback_query(lambda c: c.data == "premium_friend")
-async def premium_friend(callback: types.CallbackQuery, state: FSMContext):
-    await callback.answer("Скоро будет доступно!", show_alert=False)
-
-
-@dp.callback_query(lambda c: c.data.startswith("premium_buy_"))
-async def premium_buy(callback: types.CallbackQuery, state: FSMContext):
-    months = int(callback.data.split("_")[-1])
-    data = await state.get_data()
-    recipient = data.get("recipient", "")
-    # Заглушка — подключим API позже
-    await callback.answer(f"Покупка Premium {months} мес. для {recipient} — скоро!", show_alert=True)
-
-
-@dp.callback_query(lambda c: c.data in ["emoji_pack", "referral"])
+@dp.callback_query(lambda c: c.data == "emoji_pack")
 async def handle_stub_buttons(callback: types.CallbackQuery):
     await callback.answer("Скоро будет доступно!", show_alert=False)
 
