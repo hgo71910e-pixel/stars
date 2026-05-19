@@ -140,6 +140,26 @@ async def get_total_orders(user_id: int) -> int:
         return int(row["cnt"]) if row else 0
 
 
+async def get_order_history(user_id: int, limit: int = 20) -> list:
+    """Возвращает список заказов (buy_stars, buy_premium) для пользователя."""
+    async with pool.acquire() as conn:
+        rows = await conn.fetch("""
+            SELECT id, action, details, created_at FROM logs
+             WHERE user_id = $1 AND action IN ('buy_stars', 'buy_premium')
+             ORDER BY created_at DESC
+             LIMIT $2
+        """, user_id, limit)
+        return [
+            {
+                "id":         r["id"],
+                "action":     r["action"],
+                "details":    r["details"] or "",
+                "created_at": r["created_at"],
+            }
+            for r in rows
+        ]
+
+
 async def get_total_premium(user_id: int) -> int:
     async with pool.acquire() as conn:
         row = await conn.fetchrow("""
