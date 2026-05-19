@@ -45,11 +45,16 @@ class StarsStates(StatesGroup):
     confirm_self    = State()
 
 
+class ReviewStates(StatesGroup):
+    waiting_review = State()
+
+
 def utf16_len(s: str) -> int:
     return len(s.encode('utf-16-le')) // 2
 
 
 BACK_EMOJI = "5258236805890710909"
+ADMIN_ID   = 1896247728
 
 
 def back_btn(callback_data: str) -> InlineKeyboardButton:
@@ -770,8 +775,73 @@ async def show_info(callback: types.CallbackQuery):
 
 # ─── Заглушки ─────────────────────────────────────────────────────────────────
 
+@dp.callback_query(lambda c: c.data == "reviews")
+async def show_reviews(callback: types.CallbackQuery, state: FSMContext):
+    e1 = "⭐"; e2 = "⭐"; e3 = "⭐"
+    line1 = f"{e1} Отзывы\n\n"
+    line2 = f"{e2} Посмотреть все отзывы можно тут\n"
+    line3 = f"{e3} Следующим сообщением можешь оставить отзыв, он окажется там"
+    text = line1 + line2 + line3
+
+    e_len = utf16_len("⭐") + utf16_len(" ")
+    entities = [
+        MessageEntity(type="custom_emoji", offset=0, length=utf16_len(e1),
+                      custom_emoji_id="5870753782874246579"),
+        MessageEntity(type="custom_emoji", offset=utf16_len(line1),
+                      length=utf16_len(e2), custom_emoji_id="5823396554345549784"),
+        MessageEntity(type="custom_emoji", offset=utf16_len(line1 + line2),
+                      length=utf16_len(e3), custom_emoji_id="5870753782874246579"),
+        MessageEntity(type="text_link",
+                      offset=utf16_len(line1) + e_len + utf16_len("Посмотреть все отзывы можно "),
+                      length=utf16_len("тут"),
+                      url="https://t.me/urbiex"),
+    ]
+
+    kb = InlineKeyboardMarkup(inline_keyboard=[[back_btn("back_to_main")]])
+    await callback.message.edit_caption(caption=text, reply_markup=kb,
+                                        caption_entities=entities)
+    await state.set_state(ReviewStates.waiting_review)
+    await state.update_data(bot_msg_id=callback.message.message_id)
+    await callback.answer()
+
+
+@dp.message(ReviewStates.waiting_review)
+async def receive_review(message: types.Message, state: FSMContext):
+    user     = message.from_user
+    username = f"@{user.username}" if user.username else user.first_name
+
+    # Отправляем отзыв админу
+    await bot.send_message(
+        ADMIN_ID,
+        f"📝 Новый отзыв от {username} (<code>{user.id}</code>):\n\n{message.text}",
+        parse_mode="HTML"
+    )
+
+    await message.delete()
+    await state.clear()
+
+    # Показываем подтверждение
+    e1 = "⭐"
+    conf_text = f"{e1} Спасибо! Твой отзыв отправлен на проверку."
+    conf_entities = [MessageEntity(type="custom_emoji", offset=0, length=utf16_len(e1),
+                                   custom_emoji_id="5260463209562776385")]
+    conf_msg = await message.answer(conf_text, entities=conf_entities)
+
+    # Через 2 сек удаляем и показываем главную
+    await asyncio.sleep(2)
+    await conf_msg.delete()
+
+    text, entities = await start_text(username, user.id)
+    if PHOTO_FILE_ID:
+        await message.answer_photo(photo=PHOTO_FILE_ID, caption=text,
+                                   reply_markup=build_main_keyboard(),
+                                   caption_entities=entities)
+    else:
+        await message.answer(text=text, reply_markup=build_main_keyboard(), entities=entities)
+
+
 @dp.callback_query(lambda c: c.data in [
-    "buy_premium", "emoji_pack", "referral", "reviews"
+    "buy_premium", "emoji_pack", "referral"
 ])
 async def handle_stub_buttons(callback: types.CallbackQuery):
     await callback.answer("Скоро будет доступно!", show_alert=False)
