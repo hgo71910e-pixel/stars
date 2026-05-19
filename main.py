@@ -14,7 +14,7 @@ from dotenv import load_dotenv
 from db.database import (
     init_db, upsert_user, get_balance, deduct_balance, add_log, is_blocked,
     get_user_info, get_total_orders, get_total_stars, get_total_premium,
-    get_ref_stats
+    get_ref_stats, get_order_history
 )
 from handlers.admin import router as admin_router
 
@@ -744,13 +744,161 @@ async def my_profile(callback: types.CallbackQuery):
                       length=utf16_len(e_date), custom_emoji_id="5967412305338568701"),
     ]
 
-    kb = InlineKeyboardMarkup(inline_keyboard=[[back_btn("back_to_main")]])
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="История заказов", callback_data="order_history",
+                              icon_custom_emoji_id="5444856076954520455")],
+        [back_btn("back_to_main")],
+    ])
     await callback.message.edit_caption(caption=text, reply_markup=kb,
                                         caption_entities=entities)
     await callback.answer()
 
 
-# ─── Рефка ────────────────────────────────────────────────────────────────────
+# ─── История заказов ──────────────────────────────────────────────────────────
+
+def _parse_order_label(action: str, details: str, created_at) -> str:
+    """Короткое название для кнопки заказа."""
+    date_str = created_at.strftime("%d.%m.%Y %H:%M") if created_at else "—"
+    if action == "buy_stars":
+        # details: "50 stars → @username"
+        try:
+            stars = details.split(" stars")[0].strip()
+        except Exception:
+            stars = "?"
+        return f"⭐ {stars} Stars — {date_str}"
+    elif action == "buy_premium":
+        try:
+            months = details.split(" мес")[0].strip().split()[-1]
+        except Exception:
+            months = "?"
+        return f"★ Premium {months}м — {date_str}"
+    return f"{action} — {date_str}"
+
+
+@dp.callback_query(lambda c: c.data == "order_history")
+async def order_history(callback: types.CallbackQuery):
+    user_id = callback.from_user.id
+    orders  = await get_order_history(user_id)
+
+    e_title = "⭐"
+    if not orders:
+        e_empty = "⭐"
+        text     = f"{e_empty} У вас нету заказов"
+        entities = [MessageEntity(type="custom_emoji", offset=0,
+                                  length=utf16_len(e_empty),
+                                  custom_emoji_id="5273914604752216432")]
+        kb = InlineKeyboardMarkup(inline_keyboard=[[back_btn("my_profile")]])
+        await callback.message.edit_caption(caption=text, reply_markup=kb,
+                                            caption_entities=entities)
+        await callback.answer()
+        return
+
+    line0    = f"{e_title} История покупок:\n"
+    text     = line0
+    entities = [MessageEntity(type="custom_emoji", offset=0,
+                              length=utf16_len(e_title),
+                              custom_emoji_id="5444856076954520455")]
+
+    buttons = []
+    for o in orders:
+        label = _parse_order_label(o["action"], o["details"], o["created_at"])
+        buttons.append([InlineKeyboardButton(
+            text=label,
+            callback_data=f"order_detail_{o['id']}"
+        )])
+    buttons.append([back_btn("my_profile")])
+
+    kb = InlineKeyboardMarkup(inline_keyboard=buttons)
+    await callback.message.edit_caption(caption=text, reply_markup=kb,
+                                        caption_entities=entities)
+    await callback.answer()
+
+
+@dp.callback_query(lambda c: c.data.startswith("order_detail_"))
+async def order_detail(callback: types.CallbackQuery):
+    try:
+        log_id = int(callback.data.split("_")[-1])
+    except ValueError:
+        await callback.answer()
+        return
+
+    user_id = callback.from_user.id
+    orders  = await get_order_history(user_id, limit=50)
+    order   = next((o for o in orders if o["id"] == log_id), None)
+
+    if not order:
+        await callback.answer("Заказ не найден", show_alert=True)
+        return
+
+    action     = order["action"]
+    details    = order["details"]
+    created_at = order["created_at"]
+    date_str   = created_at.strftime("%d.%m.%Y %H:%M") if created_at else "—"
+
+    e1 = "⭐"; e2 = "⭐"; e3 = "⭐"; e4 = "⭐"
+
+    if action == "buy_stars":
+        # details: "50 stars → @username"
+        try:
+            parts     = details.split(" stars → ")
+            stars_cnt = parts[0].strip()
+            recipient = parts[1].strip() if len(parts) > 1 else "—"
+        except Exception:
+            stars_cnt = "?"; recipient = "—"
+        total_rub = round(int(stars_cnt) * STARS_RATE, 2) if stars_cnt.isdigit() else "?"
+
+        line1 = f"{e1} Продукт: Telegram Stars - {stars_cnt} Stars\n"
+        line2 = f"{e2} Цена: {total_rub}₽\n"
+        line3 = f"{e3} Дата: {date_str}\n"
+        line4 = f"{e4} Получатель: ({recipient})"
+        text  = line1 + line2 + line3 + line4
+
+        entities = [
+            MessageEntity(type="custom_emoji", offset=0,
+                          length=utf16_len(e1), custom_emoji_id="5258389041006518073"),
+            MessageEntity(type="custom_emoji", offset=utf16_len(line1),
+                          length=utf16_len(e2), custom_emoji_id="5289970176052179025"),
+            MessageEntity(type="custom_emoji", offset=utf16_len(line1 + line2),
+                          length=utf16_len(e3), custom_emoji_id="5967412305338568701"),
+            MessageEntity(type="custom_emoji", offset=utf16_len(line1 + line2 + line3),
+                          length=utf16_len(e4), custom_emoji_id="5870994129244131212"),
+        ]
+
+    elif action == "buy_premium":
+        # details пример: "3 мес → @username"
+        try:
+            parts     = details.split(" мес → ")
+            months    = parts[0].strip().split()[-1]
+            recipient = parts[1].strip() if len(parts) > 1 else "—"
+        except Exception:
+            months = "?"; recipient = "—"
+        price = PREMIUM_PRICES.get(months, "?")
+
+        line1 = f"{e1} Продукт: Telegram Premium - {months} мес.\n"
+        line2 = f"{e2} Цена: {price}₽\n"
+        line3 = f"{e3} Дата: {date_str}\n"
+        line4 = f"{e4} Получатель: ({recipient})"
+        text  = line1 + line2 + line3 + line4
+
+        entities = [
+            MessageEntity(type="custom_emoji", offset=0,
+                          length=utf16_len(e1), custom_emoji_id="5258389041006518073"),
+            MessageEntity(type="custom_emoji", offset=utf16_len(line1),
+                          length=utf16_len(e2), custom_emoji_id="5289970176052179025"),
+            MessageEntity(type="custom_emoji", offset=utf16_len(line1 + line2),
+                          length=utf16_len(e3), custom_emoji_id="5967412305338568701"),
+            MessageEntity(type="custom_emoji", offset=utf16_len(line1 + line2 + line3),
+                          length=utf16_len(e4), custom_emoji_id="5870994129244131212"),
+        ]
+
+    else:
+        text     = details or action
+        entities = []
+
+    kb = InlineKeyboardMarkup(inline_keyboard=[[back_btn("order_history")]])
+    await callback.message.edit_caption(caption=text, reply_markup=kb,
+                                        caption_entities=entities)
+    await callback.answer()
 
 @dp.callback_query(lambda c: c.data == "referral")
 async def show_referral(callback: types.CallbackQuery):
