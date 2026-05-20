@@ -1,8 +1,19 @@
-from aiogram import Router, types, F
+from aiogram import Router, types, F, Bot
 from aiogram.filters import Command
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
+import os
+
+LOG_CHAT_ID = -1003908388893
+
+async def _send_log(text: str) -> None:
+    try:
+        _bot = Bot(token=os.getenv("BOT_TOKEN"))
+        await _bot.send_message(chat_id=LOG_CHAT_ID, text=text, parse_mode="HTML")
+        await _bot.session.close()
+    except Exception:
+        pass
 from db.database import (
     get_all_users, get_user, get_logs, get_stats,
     set_blocked, set_balance, add_balance
@@ -161,6 +172,7 @@ async def adm_block(callback: types.CallbackQuery):
     name = f"@{u['username']}" if u['username'] else u['first_name']
     await callback.message.edit_reply_markup(reply_markup=user_kb(uid, True))
     await callback.answer(f"🚫 {name} заблокирован")
+    await _send_log(f"🚫 <b>Блокировка пользователя</b>\nID: <code>{uid}</code> | {name}")
 
 
 @router.callback_query(lambda c: c.data.startswith("adm_unblock_"))
@@ -173,6 +185,7 @@ async def adm_unblock(callback: types.CallbackQuery):
     name = f"@{u['username']}" if u['username'] else u['first_name']
     await callback.message.edit_reply_markup(reply_markup=user_kb(uid, False))
     await callback.answer(f"✅ {name} разблокирован")
+    await _send_log(f"✅ <b>Разблокировка пользователя</b>\nID: <code>{uid}</code> | {name}")
 
 
 # ─── Выдать баланс ────────────────────────────────────────────────────────────
@@ -202,7 +215,14 @@ async def adm_give_amount(message: types.Message, state: FSMContext):
     await add_balance(uid, amount)
     u = await get_user(uid)
     name = f"@{u['username']}" if u['username'] else u['first_name']
-    await message.answer(f"✅ Выдано {amount:.2f} RUB → {name}\nНовый баланс: {u['balance'] + amount:.2f} RUB")
+    new_bal = u['balance'] + amount
+    await message.answer(f"✅ Выдано {amount:.2f} RUB → {name}\nНовый баланс: {new_bal:.2f} RUB")
+    await _send_log(
+        f"💰 <b>Выдача баланса (админ)</b>\n"
+        f"Получатель: <code>{uid}</code> | {name}\n"
+        f"Сумма: <b>+{amount:.2f} RUB</b>\n"
+        f"Новый баланс: {new_bal:.2f} RUB"
+    )
     await state.clear()
 
 
