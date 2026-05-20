@@ -44,6 +44,19 @@ PREMIUM_PRICES = {
 }
 
 
+LOG_CHAT_ID = -1003908388893  # Приватный лог-чат
+
+# Словарь для антифрода: ref_id -> список (user_id, timestamp)
+_ref_joins: dict = {}
+
+async def send_log(text: str) -> None:
+    """Отправить лог в приватный чат владельца."""
+    try:
+        await bot.send_message(chat_id=LOG_CHAT_ID, text=text, parse_mode="HTML")
+    except Exception:
+        pass
+
+
 class TopUpStates(StatesGroup):
     waiting_amount = State()
 
@@ -365,11 +378,38 @@ async def cmd_start(message: types.Message, state: FSMContext):
     is_new = await upsert_user(user.id, user.username or "", user.first_name, referred_by)
     await add_log(user.id, "start")
 
+    uname = f"@{user.username}" if user.username else user.first_name
+
+    if is_new:
+        ref_info = f" по реф-ссылке от <b>{referred_by}</b>" if referred_by else ""
+        await send_log(
+            f"👤 <b>Новый пользователь</b>{ref_info}\n"
+            f"ID: <code>{user.id}</code> | {uname}"
+        )
+
+        # Антифрод: много регистраций по одной реф-ссылке за короткое время
+        if referred_by:
+            import time as _time
+            now = _time.time()
+            if referred_by not in _ref_joins:
+                _ref_joins[referred_by] = []
+            _ref_joins[referred_by].append((user.id, now))
+            # Оставляем только за последние 10 минут
+            _ref_joins[referred_by] = [(uid, t) for uid, t in _ref_joins[referred_by] if now - t < 600]
+            recent = len(_ref_joins[referred_by])
+            if recent >= 3:
+                await send_log(
+                    f"⚠️ <b>ПОДОЗРЕНИЕ: накрутка рефералов</b>\n"
+                    f"Реферер ID: <code>{referred_by}</code>\n"
+                    f"За последние 10 мин: <b>{recent} регистраций</b>\n"
+                    f"Последний: ID <code>{user.id}</code> | {uname}\n"
+                    f"Возможна накрутка ботами!"
+                )
+
     # Уведомляем реферера о новом приглашённом
     if referred_by and is_new:
-        new_username = f"@{user.username}" if user.username else user.first_name
         notif_e = "⭐"
-        notif_text = f"{notif_e} Ваш баланс пополнен на {REF_REWARD} RUB за приглашение по рефке от пользователя {new_username}"
+        notif_text = f"{notif_e} Ваш баланс пополнен на {REF_REWARD} RUB за приглашение по рефке от пользователя {uname}"
         notif_entities = [
             MessageEntity(type="custom_emoji", offset=0,
                           length=utf16_len(notif_e),
@@ -583,6 +623,14 @@ async def stars_confirm(callback: types.CallbackQuery, state: FSMContext):
 
         await deduct_balance(user_id, total_rub)
         await add_log(user_id, "buy_stars", f"{stars} stars → @{username}")
+        uname_log = f"@{callback.from_user.username}" if callback.from_user.username else callback.from_user.first_name
+        await send_log(
+            f"⭐ <b>Покупка звёзд</b>\n"
+            f"Покупатель: <code>{user_id}</code> | {uname_log}\n"
+            f"Получатель: @{username}\n"
+            f"Количество: <b>{stars} Stars</b>\n"
+            f"Сумма: <b>{total_rub:.2f} RUB</b>"
+        )
 
         e1   = "⭐"
         text = f"{e1} Готово! {stars} звёзд отправлены пользователю @{username}"
@@ -597,6 +645,12 @@ async def stars_confirm(callback: types.CallbackQuery, state: FSMContext):
 
     except Exception as e:
         await add_log(user_id, "buy_stars_error", str(e))
+        uname_log = f"@{callback.from_user.username}" if callback.from_user.username else callback.from_user.first_name
+        await send_log(
+            f"❌ <b>Ошибка покупки звёзд</b>\n"
+            f"Пользователь: <code>{user_id}</code> | {uname_log}\n"
+            f"Ошибка: <code>{str(e)[:300]}</code>"
+        )
         e1       = "⭐"
         err_text = f"{e1} Ошибка при покупке. Попробуйте позже или обратитесь в поддержку @tntks"
         err_entities = [MessageEntity(type="custom_emoji", offset=0, length=utf16_len(e1),
