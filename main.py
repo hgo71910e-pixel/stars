@@ -34,7 +34,7 @@ MIN_AMOUNT = 10
 STARS_RATE = 1.40
 STARS_MIN  = 50
 USD_RATE   = 90.0
-REF_REWARD = 4  # RUB за каждого реферала
+REF_REWARD = 2  # RUB за каждого реферала
 
 # Цены на Premium — пока 0, заполнишь когда подключишь МРКТ
 PREMIUM_PRICES = {
@@ -362,8 +362,27 @@ async def cmd_start(message: types.Message, state: FSMContext):
             except ValueError:
                 pass
 
-    await upsert_user(user.id, user.username or "", user.first_name, referred_by)
+    is_new = await upsert_user(user.id, user.username or "", user.first_name, referred_by)
     await add_log(user.id, "start")
+
+    # Уведомляем реферера о новом приглашённом
+    if referred_by and is_new:
+        new_username = f"@{user.username}" if user.username else user.first_name
+        notif_e = "⭐"
+        notif_text = f"{notif_e} Ваш баланс пополнен на {REF_REWARD} RUB за приглашение по рефке от пользователя {new_username}"
+        notif_entities = [
+            MessageEntity(type="custom_emoji", offset=0,
+                          length=utf16_len(notif_e),
+                          custom_emoji_id="5260463209562776385")
+        ]
+        try:
+            await bot.send_message(
+                chat_id=referred_by,
+                text=notif_text,
+                entities=notif_entities
+            )
+        except Exception:
+            pass
 
     username = f"@{user.username}" if user.username else user.first_name
     text, entities = await start_text(username, user.id)
