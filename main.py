@@ -34,7 +34,7 @@ MIN_AMOUNT = 10
 STARS_RATE = 1.40
 STARS_MIN  = 50
 USD_RATE   = 90.0
-REF_PCT    = 5
+REF_REWARD = 4  # RUB за каждого реферала
 
 # Цены на Premium — пока 0, заполнишь когда подключишь МРКТ
 PREMIUM_PRICES = {
@@ -913,7 +913,7 @@ async def show_referral(callback: types.CallbackQuery):
     e1 = "⭐"; e2 = "⭐"; e3 = "⭐"; e4 = "⭐"; e5 = "⭐"
 
     line1 = f"{e1} Рефка\n\n"
-    line2 = f"Получай +{REF_PCT}%  за каждую покупку реферала!\n\n"
+    line2 = f"Получай {REF_REWARD} RUB за каждого реферала\n\n"
     line3 = f"{e2} Приглашено рефералов: {count}\n"
     line4 = f"{e3} Прибыль от реф. программы: {profit:.2f} RUB\n\n"
     line5 = f"{e4} Ваша реферальная ссылка:\n"
