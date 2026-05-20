@@ -777,6 +777,7 @@ def _parse_order_label(action: str, details: str, created_at) -> str:
 
 @dp.callback_query(lambda c: c.data == "order_history")
 async def order_history(callback: types.CallbackQuery):
+    await callback.answer()
     user_id = callback.from_user.id
     orders  = await get_order_history(user_id)
 
@@ -790,7 +791,6 @@ async def order_history(callback: types.CallbackQuery):
         kb = InlineKeyboardMarkup(inline_keyboard=[[back_btn("my_profile")]])
         await callback.message.edit_caption(caption=text, reply_markup=kb,
                                             caption_entities=entities)
-        await callback.answer()
         return
 
     line0    = f"{e_title} История покупок:\n"
@@ -804,26 +804,25 @@ async def order_history(callback: types.CallbackQuery):
         label = _parse_order_label(o["action"], o["details"], o["created_at"])
         buttons.append([InlineKeyboardButton(
             text=label,
-            callback_data=f"order_detail_{o['id']}"
+            callback_data=f"ord_{o['id']}"
         )])
     buttons.append([back_btn("my_profile")])
 
     kb = InlineKeyboardMarkup(inline_keyboard=buttons)
     await callback.message.edit_caption(caption=text, reply_markup=kb,
                                         caption_entities=entities)
-    await callback.answer()
 
 
-@dp.callback_query(lambda c: c.data.startswith("order_detail_"))
+@dp.callback_query(lambda c: c.data.startswith("ord_"))
 async def order_detail(callback: types.CallbackQuery):
+    await callback.answer()
     try:
-        log_id = int(callback.data.split("_")[-1])
+        log_id = int(callback.data[4:])
     except ValueError:
-        await callback.answer()
         return
 
     user_id = callback.from_user.id
-    orders  = await get_order_history(user_id, limit=50)
+    orders  = await get_order_history(user_id, limit=100)
     order   = next((o for o in orders if o["id"] == log_id), None)
 
     if not order:
@@ -898,7 +897,6 @@ async def order_detail(callback: types.CallbackQuery):
     kb = InlineKeyboardMarkup(inline_keyboard=[[back_btn("order_history")]])
     await callback.message.edit_caption(caption=text, reply_markup=kb,
                                         caption_entities=entities)
-    await callback.answer()
 
 @dp.callback_query(lambda c: c.data == "referral")
 async def show_referral(callback: types.CallbackQuery):
