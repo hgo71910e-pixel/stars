@@ -62,20 +62,22 @@ async def upsert_user(user_id: int, username: str, first_name: str, referred_by:
             await conn.execute("""
                 UPDATE users SET username = $2, first_name = $3 WHERE user_id = $1
             """, user_id, username, first_name)
+            return False
         else:
             # Новый пользователь — записываем реферера если есть
             await conn.execute("""
                 INSERT INTO users (user_id, username, first_name, referred_by)
                 VALUES ($1, $2, $3, $4)
             """, user_id, username, first_name, referred_by)
-            # Начисляем 4 RUB рефереру за приглашение
+            # Начисляем 2 RUB рефереру за приглашение
             if referred_by:
                 await conn.execute("""
                     UPDATE users
-                       SET balance     = balance + 4,
-                           ref_balance = ref_balance + 4
+                       SET balance     = balance + 2,
+                           ref_balance = ref_balance + 2
                      WHERE user_id = $1
                 """, referred_by)
+            return True
 
 
 async def get_balance(user_id: int) -> float:
