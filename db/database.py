@@ -68,6 +68,14 @@ async def upsert_user(user_id: int, username: str, first_name: str, referred_by:
                 INSERT INTO users (user_id, username, first_name, referred_by)
                 VALUES ($1, $2, $3, $4)
             """, user_id, username, first_name, referred_by)
+            # Начисляем 4 RUB рефереру за приглашение
+            if referred_by:
+                await conn.execute("""
+                    UPDATE users
+                       SET balance     = balance + 4,
+                           ref_balance = ref_balance + 4
+                     WHERE user_id = $1
+                """, referred_by)
 
 
 async def get_balance(user_id: int) -> float:
@@ -88,18 +96,7 @@ async def deduct_balance(user_id: int, amount: float):
              WHERE user_id = $1
         """, user_id, amount)
 
-        # Начисляем 5% рефереру если есть
-        row = await conn.fetchrow(
-            "SELECT referred_by FROM users WHERE user_id = $1", user_id
-        )
-        if row and row["referred_by"]:
-            ref_reward = round(amount * 0.05, 2)
-            await conn.execute("""
-                UPDATE users
-                   SET balance     = balance + $2,
-                       ref_balance = ref_balance + $2
-                 WHERE user_id = $1
-            """, row["referred_by"], ref_reward)
+        # Реферальное вознаграждение выплачивается при регистрации (в upsert_user)
 
 
 async def add_log(user_id: int, action: str, details: str = ""):
