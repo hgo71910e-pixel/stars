@@ -5,8 +5,9 @@ from aiogram.filters import Command
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 
 from db.database import (
-    get_balance, add_balance, block_user, unblock_user, add_log,
-    get_total_orders, get_total_stars, get_total_premium,
+    get_balance, add_balance, set_blocked, add_log,
+    get_all_users, get_stats, get_total_orders,
+    get_total_stars, get_total_premium,
 )
 
 router = Router()
@@ -30,6 +31,12 @@ def build_admin_keyboard() -> InlineKeyboardMarkup:
     ])
 
 
+def back_kb(cb: str) -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="↩️ Назад", callback_data=cb)]
+    ])
+
+
 # ─── /admin ───────────────────────────────────────────────────────────────────
 
 @router.message(Command("admin"))
@@ -48,32 +55,17 @@ async def admin_stats(callback: types.CallbackQuery):
     await callback.answer()
 
     try:
-        from db.database import get_all_users
-        users = await get_all_users()
-        total_users = len(users)
-        total_orders = 0
-        total_stars = 0
-        total_premium = 0
-        for u in users:
-            uid = u["user_id"]
-            total_orders += await get_total_orders(uid)
-            total_stars += await get_total_stars(uid)
-            total_premium += await get_total_premium(uid)
+        stats = await get_stats()
+        text = (
+            "📊 Статистика бота\n\n"
+            f"👥 Всего пользователей: {stats['total']}\n"
+            f"🚫 Заблокировано: {stats['blocked']}\n"
+            f"💸 Всего потрачено: {stats['total_spent']:.2f} RUB"
+        )
     except Exception as e:
-        await callback.message.edit_text(f"❌ Ошибка при получении статистики: {e}")
-        return
+        text = f"❌ Ошибка: {e}"
 
-    text = (
-        "📊 Статистика бота\n\n"
-        f"👥 Всего пользователей: {total_users}\n"
-        f"📦 Всего заказов: {total_orders}\n"
-        f"⭐ Продано звёзд: {total_stars}\n"
-        f"💎 Продано Premium: {total_premium}"
-    )
-    kb = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="↩️ Назад", callback_data="admin_back")]
-    ])
-    await callback.message.edit_text(text, reply_markup=kb)
+    await callback.message.edit_text(text, reply_markup=back_kb("admin_back"))
 
 
 # ─── Подсказки по командам ────────────────────────────────────────────────────
@@ -83,12 +75,9 @@ async def admin_help_balance(callback: types.CallbackQuery):
     if not is_admin(callback.from_user.id):
         return await callback.answer()
     await callback.answer()
-    kb = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="↩️ Назад", callback_data="admin_back")]
-    ])
     await callback.message.edit_text(
         "💰 Пополнение баланса\n\nКоманда:\n/add_balance <user_id> <сумма>\n\nПример:\n/add_balance 123456789 500",
-        reply_markup=kb
+        reply_markup=back_kb("admin_back")
     )
 
 
@@ -97,12 +86,9 @@ async def admin_help_block(callback: types.CallbackQuery):
     if not is_admin(callback.from_user.id):
         return await callback.answer()
     await callback.answer()
-    kb = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="↩️ Назад", callback_data="admin_back")]
-    ])
     await callback.message.edit_text(
         "🚫 Блокировка пользователя\n\nКоманда:\n/block <user_id>\n\nПример:\n/block 123456789",
-        reply_markup=kb
+        reply_markup=back_kb("admin_back")
     )
 
 
@@ -111,12 +97,9 @@ async def admin_help_unblock(callback: types.CallbackQuery):
     if not is_admin(callback.from_user.id):
         return await callback.answer()
     await callback.answer()
-    kb = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="↩️ Назад", callback_data="admin_back")]
-    ])
     await callback.message.edit_text(
         "✅ Разблокировка пользователя\n\nКоманда:\n/unblock <user_id>\n\nПример:\n/unblock 123456789",
-        reply_markup=kb
+        reply_markup=back_kb("admin_back")
     )
 
 
@@ -125,12 +108,9 @@ async def admin_help_broadcast(callback: types.CallbackQuery):
     if not is_admin(callback.from_user.id):
         return await callback.answer()
     await callback.answer()
-    kb = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="↩️ Назад", callback_data="admin_back")]
-    ])
     await callback.message.edit_text(
         "📢 Рассылка\n\nКоманда:\n/broadcast <текст>\n\nПример:\n/broadcast Привет всем!",
-        reply_markup=kb
+        reply_markup=back_kb("admin_back")
     )
 
 
@@ -178,7 +158,7 @@ async def cmd_block(message: types.Message):
     except ValueError:
         return await message.answer("Неверный user_id")
 
-    await block_user(target_id)
+    await set_blocked(target_id, True)
     await message.answer(f"🚫 Пользователь {target_id} заблокирован")
 
 
@@ -196,38 +176,8 @@ async def cmd_unblock(message: types.Message):
     except ValueError:
         return await message.answer("Неверный user_id")
 
-    await unblock_user(target_id)
+    await set_blocked(target_id, False)
     await message.answer(f"✅ Пользователь {target_id} разблокирован")
-
-
-# ─── /broadcast ───────────────────────────────────────────────────────────────
-
-@router.message(Command("broadcast"))
-async def cmd_broadcast(message: types.Message):
-    if not is_admin(message.from_user.id):
-        return
-    bot: Bot = message.bot
-    text = message.text[len("/broadcast"):].strip()
-    if not text:
-        return await message.answer("Укажите текст: /broadcast <текст>")
-
-    try:
-        from db.database import get_all_users
-        users = await get_all_users()
-    except Exception as e:
-        return await message.answer(f"❌ Ошибка получения пользователей: {e}")
-
-    sent = 0
-    failed = 0
-    for u in users:
-        try:
-            await bot.send_message(u["user_id"], text)
-            sent += 1
-        except Exception:
-            failed += 1
-        await asyncio.sleep(0.05)
-
-    await message.answer(f"📢 Рассылка завершена.\n✅ Отправлено: {sent}\n❌ Ошибок: {failed}")
 
 
 # ─── /balance ─────────────────────────────────────────────────────────────────
@@ -246,3 +196,32 @@ async def cmd_balance(message: types.Message):
 
     balance = await get_balance(target_id)
     await message.answer(f"💰 Баланс пользователя {target_id}: {balance:.2f} RUB")
+
+
+# ─── /broadcast ───────────────────────────────────────────────────────────────
+
+@router.message(Command("broadcast"))
+async def cmd_broadcast(message: types.Message):
+    if not is_admin(message.from_user.id):
+        return
+    bot: Bot = message.bot
+    text = message.text[len("/broadcast"):].strip()
+    if not text:
+        return await message.answer("Укажите текст: /broadcast <текст>")
+
+    try:
+        users = await get_all_users()
+    except Exception as e:
+        return await message.answer(f"❌ Ошибка получения пользователей: {e}")
+
+    sent = 0
+    failed = 0
+    for u in users:
+        try:
+            await bot.send_message(u["user_id"], text)
+            sent += 1
+        except Exception:
+            failed += 1
+        await asyncio.sleep(0.05)
+
+    await message.answer(f"📢 Рассылка завершена.\n✅ Отправлено: {sent}\n❌ Ошибок: {failed}")
