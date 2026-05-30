@@ -1330,11 +1330,8 @@ async def process_premium_friend_username(message: types.Message, state: FSMCont
     # Проверяем через Split API
     recip_data = await split_check_premium_recipient(raw)
 
-    # Логируем ответ для отладки
-    await bot.send_message(ADMIN_ID, f"[DEBUG premium_friend] @{raw}\nrecip_data: {recip_data}")
-
+    # None = пользователь не найден в Telegram
     if recip_data is None:
-        # Пользователь не найден
         e       = "⭐"
         err_msg = await message.answer(
             f"{e} Пользователь @{raw} не найден. Проверьте username и попробуйте снова.",
@@ -1345,6 +1342,7 @@ async def process_premium_friend_username(message: types.Message, state: FSMCont
         await err_msg.delete()
         return
 
+    # Split возвращает is_premium только если Premium есть
     if recip_data.get("is_premium", False):
         e       = "⭐"
         err_msg = await message.answer(
@@ -1356,7 +1354,7 @@ async def process_premium_friend_username(message: types.Message, state: FSMCont
         await err_msg.delete()
         return
 
-    # Всё ок — сохраняем и показываем выбор периода
+    # Всё ок — пользователь найден, Premium нет → допускаем к покупке
     recipient = f"@{raw}"
     await state.update_data(recipient=recipient)
 
