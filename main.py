@@ -1327,52 +1327,38 @@ async def process_premium_friend_username(message: types.Message, state: FSMCont
     if not raw:
         return
 
-    recipient = f"@{raw}"
-
-    # Проверяем пользователя через Split API
+    recipient  = f"@{raw}"
     recip_data = await split_check_premium_recipient(raw)
 
+    # Пользователь не найден
     if recip_data is None:
-        # Пользователь не найден в Telegram
-        e = "⭐"
-        err_text = f"{e} Пользователь @{raw} не найден. Проверьте username и попробуйте снова:"
-        err_ent  = [MessageEntity(type="custom_emoji", offset=0, length=utf16_len(e),
-                                  custom_emoji_id="5273914604752216432")]
-        kb = InlineKeyboardMarkup(inline_keyboard=[[back_btn("buy_premium")]])
-        if bot_msg_id:
-            await bot.edit_message_caption(
-                chat_id=message.chat.id,
-                message_id=bot_msg_id,
-                caption=err_text,
-                reply_markup=kb,
-                caption_entities=err_ent
-            )
-        # Остаёмся в том же state чтобы можно было ввести другой username
-        return
+        e       = "⭐"
+        err_msg = await message.answer(
+            f"{e} Пользователь @{raw} не найден. Проверьте username и попробуйте снова.",
+            entities=[MessageEntity(type="custom_emoji", offset=0, length=utf16_len(e),
+                                    custom_emoji_id="5273914604752216432")]
+        )
+        await asyncio.sleep(2)
+        await err_msg.delete()
+        return  # остаёмся в enter_friend_user, ждём новый ввод
 
-    # Проверяем есть ли уже Premium
-    has_premium = recip_data.get("is_premium", False)
-    if has_premium:
-        e = "⭐"
-        err_text = f"{e} У пользователя @{raw} уже есть Telegram Premium!"
-        err_ent  = [MessageEntity(type="custom_emoji", offset=0, length=utf16_len(e),
-                                  custom_emoji_id="5273914604752216432")]
-        kb = InlineKeyboardMarkup(inline_keyboard=[[back_btn("buy_premium")]])
-        if bot_msg_id:
-            await bot.edit_message_caption(
-                chat_id=message.chat.id,
-                message_id=bot_msg_id,
-                caption=err_text,
-                reply_markup=kb,
-                caption_entities=err_ent
-            )
-        return
+    # Уже есть Premium
+    if recip_data.get("is_premium", False):
+        e       = "⭐"
+        err_msg = await message.answer(
+            f"{e} Ошибка! У пользователя @{raw} уже есть Telegram Premium!",
+            entities=[MessageEntity(type="custom_emoji", offset=0, length=utf16_len(e),
+                                    custom_emoji_id="5273914604752216432")]
+        )
+        await asyncio.sleep(2)
+        await err_msg.delete()
+        return  # остаёмся в enter_friend_user, ждём новый ввод
 
     # Всё ок — сохраняем и показываем выбор периода
     await state.update_data(recipient=recipient)
 
-    e1    = "⭐"
-    line1 = f"{e1} Выберите период подписки для @{raw}:"
+    e1       = "⭐"
+    line1    = f"{e1} Выберите период подписки для @{raw}:"
     entities = [MessageEntity(type="custom_emoji", offset=0,
                               length=utf16_len(e1), custom_emoji_id="5274026806477857971")]
 
