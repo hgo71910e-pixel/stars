@@ -672,9 +672,40 @@ async def stars_confirm(callback: types.CallbackQuery, state: FSMContext):
         )
 
     except Exception as e:
-        await add_log(user_id, "buy_stars_error", str(e))
-        e1       = "⭐"
-        err_text = f"{e1} Ошибка при покупке. Попробуйте позже или обратитесь в поддержку @tntks"
+        err_reason = str(e)
+        await add_log(user_id, "buy_stars_error", err_reason)
+
+        # Уведомляем админа с полной причиной
+        try:
+            await bot.send_message(
+                ADMIN_ID,
+                f"❌ Ошибка покупки звёзд\n"
+                f"👤 user_id: <code>{user_id}</code>\n"
+                f"⭐ Stars: {stars} → @{username}\n"
+                f"💬 Причина: <code>{err_reason}</code>",
+                parse_mode="HTML"
+            )
+        except Exception:
+            pass
+
+        # Формируем понятное сообщение пользователю
+        if "не найден" in err_reason.lower() or "recipient" in err_reason.lower():
+            user_msg = "Пользователь не найден в Telegram или не может получить звёзды"
+        elif "balance" in err_reason.lower() or "insufficient" in err_reason.lower():
+            user_msg = "Недостаточно средств на балансе сервиса. Попробуйте позже"
+        elif "timeout" in err_reason.lower() or "connect" in err_reason.lower():
+            user_msg = "Сервис временно недоступен. Попробуйте через несколько минут"
+        elif "api" in err_reason.lower() or "split" in err_reason.lower():
+            user_msg = f"Ошибка платёжного сервиса: {err_reason}"
+        else:
+            user_msg = f"Ошибка: {err_reason}"
+
+        e1 = "⭐"
+        err_text = (
+            f"{e1} Покупка не выполнена\n\n"
+            f"Причина: {user_msg}\n\n"
+            f"Поддержка: @tntks"
+        )
         err_entities = [MessageEntity(type="custom_emoji", offset=0, length=utf16_len(e1),
                                       custom_emoji_id="5447644880824181073")]
         await callback.message.edit_caption(
