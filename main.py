@@ -157,9 +157,12 @@ class TopUpStates(StatesGroup):
 
 
 class StarsStates(StatesGroup):
-    calculator       = State()
-    enter_stars_self = State()
-    confirm_self     = State()
+    calculator         = State()
+    enter_stars_self   = State()
+    confirm_self       = State()
+    enter_friend_user  = State()
+    enter_stars_friend = State()
+    confirm_friend     = State()
 
 
 class ReviewStates(StatesGroup):
@@ -530,8 +533,97 @@ async def stars_self(callback: types.CallbackQuery, state: FSMContext):
 
 
 @dp.callback_query(lambda c: c.data == "stars_friend")
-async def stars_friend(callback: types.CallbackQuery):
-    await callback.answer("Скоро будет доступно!", show_alert=False)
+async def stars_friend(callback: types.CallbackQuery, state: FSMContext):
+    e1 = "⭐"
+    text = f"{e1} Введите @username пользователя, которому хотите купить звезды:"
+    entities = [MessageEntity(type="custom_emoji", offset=0, length=utf16_len(e1),
+                              custom_emoji_id="5771887475421090729")]
+    kb = InlineKeyboardMarkup(inline_keyboard=[[back_btn("stars_who")]])
+    await callback.message.edit_caption(
+        caption=text,
+        reply_markup=kb,
+        caption_entities=entities
+    )
+    await state.set_state(StarsStates.enter_friend_user)
+    await state.update_data(bot_msg_id=callback.message.message_id)
+    await callback.answer()
+
+
+@dp.message(StarsStates.enter_friend_user)
+async def process_friend_username(message: types.Message, state: FSMContext):
+    await message.delete()
+    data       = await state.get_data()
+    bot_msg_id = data.get("bot_msg_id")
+    user_id    = message.from_user.id
+
+    raw = message.text.strip().lstrip("@")
+    if not raw:
+        return
+
+    recipient = f"@{raw}"
+    text, entities = await stars_enter_text(user_id, recipient)
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="Калькулятор", callback_data="stars_calc_on",
+                              icon_custom_emoji_id="5415756135925829889")],
+        [back_btn("stars_who")]
+    ])
+    if bot_msg_id:
+        await bot.edit_message_caption(
+            chat_id=message.chat.id,
+            message_id=bot_msg_id,
+            caption=text,
+            reply_markup=kb,
+            caption_entities=entities
+        )
+    await state.set_state(StarsStates.enter_stars_friend)
+    await state.update_data(bot_msg_id=bot_msg_id, recipient=recipient)
+
+
+@dp.message(StarsStates.enter_stars_friend)
+async def process_stars_friend(message: types.Message, state: FSMContext):
+    await message.delete()
+    data       = await state.get_data()
+    bot_msg_id = data.get("bot_msg_id")
+    recipient  = data.get("recipient", "")
+    user_id    = message.from_user.id
+
+    try:
+        stars = int(message.text.strip())
+        if stars < STARS_MIN:
+            raise ValueError
+    except ValueError:
+        e        = "⭐"
+        err_text = f"{e} Минимум {STARS_MIN} звёзд"
+        err_entities = [MessageEntity(type="custom_emoji", offset=0, length=utf16_len(e),
+                                      custom_emoji_id="5273914604752216432")]
+        err_msg = await message.answer(err_text, entities=err_entities)
+        await asyncio.sleep(2)
+        await err_msg.delete()
+        return
+
+    balance  = await get_balance(user_id)
+    required = round(stars * STARS_RATE, 2)
+
+    if balance < required:
+        text, entities = await stars_no_funds_text(user_id, stars)
+        if bot_msg_id:
+            await bot.edit_message_caption(
+                chat_id=message.chat.id, message_id=bot_msg_id,
+                caption=text,
+                reply_markup=InlineKeyboardMarkup(inline_keyboard=[[back_btn("stars_who")]]),
+                caption_entities=entities
+            )
+    else:
+        await state.update_data(stars=stars)
+        text, entities = stars_confirm_text(recipient, stars)
+        if bot_msg_id:
+            await bot.edit_message_caption(
+                chat_id=message.chat.id, message_id=bot_msg_id,
+                caption=text,
+                reply_markup=build_confirm_keyboard(),
+                caption_entities=entities
+            )
+        await state.set_state(StarsStates.confirm_friend)
 
 
 @dp.callback_query(lambda c: c.data == "stars_calc_on")
@@ -661,7 +753,7 @@ async def stars_confirm(callback: types.CallbackQuery, state: FSMContext):
         await add_log(user_id, "buy_stars", f"{stars} stars → @{username}")
 
         e1   = "⭐"
-        text = f"{e1} Готово! {stars} звёзд отправлены пользователю @{username}"
+        text = f"{e1} Готово, звёзды придут в течении нескольких минут"
         entities = [MessageEntity(type="custom_emoji", offset=0, length=utf16_len(e1),
                                   custom_emoji_id="5260463209562776385")]
         await state.clear()
