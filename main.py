@@ -1327,34 +1327,7 @@ async def process_premium_friend_username(message: types.Message, state: FSMCont
     if not raw:
         return
 
-    recipient  = f"@{raw}"
-    recip_data = await split_check_premium_recipient(raw)
-
-    # Пользователь не найден
-    if recip_data is None:
-        e       = "⭐"
-        err_msg = await message.answer(
-            f"{e} Пользователь @{raw} не найден. Проверьте username и попробуйте снова.",
-            entities=[MessageEntity(type="custom_emoji", offset=0, length=utf16_len(e),
-                                    custom_emoji_id="5273914604752216432")]
-        )
-        await asyncio.sleep(2)
-        await err_msg.delete()
-        return  # остаёмся в enter_friend_user, ждём новый ввод
-
-    # Уже есть Premium
-    if recip_data.get("is_premium", False):
-        e       = "⭐"
-        err_msg = await message.answer(
-            f"{e} Ошибка! У пользователя @{raw} уже есть Telegram Premium!",
-            entities=[MessageEntity(type="custom_emoji", offset=0, length=utf16_len(e),
-                                    custom_emoji_id="5273914604752216432")]
-        )
-        await asyncio.sleep(2)
-        await err_msg.delete()
-        return  # остаёмся в enter_friend_user, ждём новый ввод
-
-    # Всё ок — сохраняем и показываем выбор периода
+    recipient = f"@{raw}"
     await state.update_data(recipient=recipient)
 
     e1       = "⭐"
@@ -1458,14 +1431,15 @@ async def premium_confirm(callback: types.CallbackQuery, state: FSMContext):
         except Exception:
             pass
 
-        if "не найден" in err_reason.lower() or "recipient" in err_reason.lower():
-            user_msg = "Пользователь не найден в Telegram"
-        elif "balance" in err_reason.lower() or "insufficient" in err_reason.lower():
+        el = err_reason.lower()
+        if "already" in el or "premium" in el and ("has" in el or "exist" in el or "active" in el):
+            user_msg = f"У пользователя @{username} уже есть Telegram Premium!"
+        elif "не найден" in el or "not found" in el or "recipient" in el or "user" in el and "found" in el:
+            user_msg = f"Пользователь @{username} не найден в Telegram"
+        elif "balance" in el or "insufficient" in el or "funds" in el:
             user_msg = "Недостаточно средств на балансе сервиса. Попробуйте позже"
-        elif "timeout" in err_reason.lower() or "connect" in err_reason.lower():
+        elif "timeout" in el or "connect" in el:
             user_msg = "Сервис временно недоступен. Попробуйте через несколько минут"
-        elif "already" in err_reason.lower():
-            user_msg = "У пользователя уже есть активный Telegram Premium"
         else:
             user_msg = f"Ошибка: {err_reason}"
 
