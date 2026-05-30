@@ -1327,32 +1327,23 @@ async def process_premium_friend_username(message: types.Message, state: FSMCont
     if not raw:
         return
 
-    # Проверяем пользователя через Telegram API
-    try:
-        chat = await bot.get_chat(f"@{raw}")
-    except Exception:
-        # Пользователь не найден
-        e       = "⭐"
-        err_msg = await message.answer(
-            f"{e} Пользователь @{raw} не найден. Проверьте username и попробуйте снова.",
-            entities=[MessageEntity(type="custom_emoji", offset=0, length=utf16_len(e),
-                                    custom_emoji_id="5273914604752216432")]
-        )
-        await asyncio.sleep(1)
-        await err_msg.delete()
-        return  # остаёмся в enter_friend_user
+    # Проверяем через Split API — он точно знает есть ли Premium
+    recip_data = await split_check_premium_recipient(raw)
 
-    # Проверяем есть ли уже Premium
-    if getattr(chat, "is_premium", False):
-        e       = "⭐"
-        err_msg = await message.answer(
-            f"{e} Ошибка! У пользователя @{raw} уже есть Telegram Premium!",
-            entities=[MessageEntity(type="custom_emoji", offset=0, length=utf16_len(e),
-                                    custom_emoji_id="5273914604752216432")]
-        )
-        await asyncio.sleep(1)
-        await err_msg.delete()
-        return  # остаёмся в enter_friend_user
+    if recip_data is not None:
+        # Split вернул данные — проверяем есть ли уже Premium
+        if recip_data.get("is_premium", False):
+            e       = "⭐"
+            err_msg = await message.answer(
+                f"{e} Ошибка! У пользователя @{raw} уже есть Telegram Premium!",
+                entities=[MessageEntity(type="custom_emoji", offset=0, length=utf16_len(e),
+                                        custom_emoji_id="5273914604752216432")]
+            )
+            await asyncio.sleep(1)
+            await err_msg.delete()
+            return
+    # Если Split вернул None — не блокируем, пропускаем дальше
+    # (ошибка "не найден" или "уже есть Premium" придёт при покупке)
 
     # Всё ок — сохраняем и показываем выбор периода
     recipient = f"@{raw}"
