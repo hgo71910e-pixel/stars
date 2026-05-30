@@ -253,7 +253,9 @@ class ReviewStates(StatesGroup):
 
 
 class PremiumStates(StatesGroup):
-    confirm_self = State()
+    confirm_self        = State()
+    enter_friend_user   = State()
+    confirm_friend      = State()
 
 
 def utf16_len(s: str) -> int:
@@ -1279,22 +1281,64 @@ async def premium_self(callback: types.CallbackQuery, state: FSMContext):
 
 
 @dp.callback_query(lambda c: c.data == "premium_friend")
-async def premium_friend(callback: types.CallbackQuery):
-    await callback.answer("Скоро будет доступно!", show_alert=False)
+async def premium_friend(callback: types.CallbackQuery, state: FSMContext):
+    e1   = "⭐"
+    text = f"{e1} Введите @username пользователя, которому хотите купить Premium:"
+    entities = [MessageEntity(type="custom_emoji", offset=0, length=utf16_len(e1),
+                              custom_emoji_id="5771887475421090729")]
+    kb = InlineKeyboardMarkup(inline_keyboard=[[back_btn("buy_premium")]])
+    await callback.message.edit_caption(
+        caption=text,
+        reply_markup=kb,
+        caption_entities=entities
+    )
+    await state.set_state(PremiumStates.enter_friend_user)
+    await state.update_data(bot_msg_id=callback.message.message_id)
+    await callback.answer()
+
+
+@dp.message(PremiumStates.enter_friend_user)
+async def process_premium_friend_username(message: types.Message, state: FSMContext):
+    await message.delete()
+    data       = await state.get_data()
+    bot_msg_id = data.get("bot_msg_id")
+    raw        = message.text.strip().lstrip("@")
+    if not raw:
+        return
+
+    recipient = f"@{raw}"
+    await state.update_data(recipient=recipient)
+
+    e1    = "⭐"
+    line1 = f"{e1} Выберите период подписки для @{raw}:"
+    entities = [MessageEntity(type="custom_emoji", offset=0,
+                              length=utf16_len(e1), custom_emoji_id="5274026806477857971")]
+
+    if bot_msg_id:
+        await bot.edit_message_caption(
+            chat_id=message.chat.id,
+            message_id=bot_msg_id,
+            caption=line1,
+            reply_markup=build_premium_period_keyboard(),
+            caption_entities=entities
+        )
+    await state.set_state(PremiumStates.confirm_friend)
 
 
 @dp.callback_query(lambda c: c.data.startswith("premium_period_"))
 async def premium_period(callback: types.CallbackQuery, state: FSMContext):
-    months = callback.data.split("_")[-1]
-    price  = get_premium_price(int(months))
-    user   = callback.from_user
+    months    = callback.data.split("_")[-1]
+    price     = get_premium_price(int(months))
+    data      = await state.get_data()
+    user      = callback.from_user
+    recipient = data.get("recipient") or f"@{user.username or user.id}"
 
-    await state.update_data(months=months, price=price)
+    await state.update_data(months=months, price=price, recipient=recipient)
 
     e1 = "⭐"; e2 = "⭐"; e3 = "⭐"; e4 = "⭐"
 
     line1 = f"{e1} Подтверждение\n\n"
-    line2 = f"{e2} Получатель: @{user.username or user.first_name}\n"
+    line2 = f"{e2} Получатель: {recipient}\n"
     line3 = f"{e3} Период: {months} мес.\n"
     line4 = f"{e4} Итого к оплате: {price} RUB"
     text  = line1 + line2 + line3 + line4
@@ -1325,8 +1369,9 @@ async def premium_confirm(callback: types.CallbackQuery, state: FSMContext):
     months  = data.get("months")
     price   = data.get("price", 0)
     user_id = callback.from_user.id
-    user    = callback.from_user
-    username = user.username or str(user_id)
+    user      = callback.from_user
+    recipient = data.get("recipient") or f"@{user.username or user.id}"
+    username  = recipient.lstrip("@")
 
     await callback.answer("⏳ Обрабатываем заказ...", show_alert=False)
 
