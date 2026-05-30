@@ -36,14 +36,59 @@ COMMISSION = 0.08
 MIN_AMOUNT = 10
 STARS_RATE = 1.30
 STARS_MIN  = 50
-USD_RATE   = 90.0
 REF_PCT    = 5
 
-PREMIUM_PRICES = {
-    "3":  0,
-    "6":  0,
-    "12": 0,
+# Telegram Premium базовая цена в USD (официальная $4.99/мес)
+PREMIUM_USD_PER_MONTH = 4.99
+PREMIUM_MARKUP_RUB    = 30     # наценка в рублях на каждую подписку
+
+# Динамический курс USD/RUB — обновляется каждые 6 часов через ЦБ РФ
+_usd_rate_cache: float = 75.0
+_usd_rate_updated: float = 0.0
+
+PREMIUM_MONTHS_LABEL = {
+    "3":  "3 месяца",
+    "6":  "6 месяцев",
+    "12": "12 месяцев",
 }
+
+
+def get_usd_rate() -> float:
+    """Возвращает текущий кэшированный курс USD/RUB."""
+    return _usd_rate_cache
+
+
+def get_premium_price(months: int) -> int:
+    """Считает цену Premium в рублях по актуальному курсу + наценка."""
+    rate  = get_usd_rate()
+    total = round(PREMIUM_USD_PER_MONTH * months * rate + PREMIUM_MARKUP_RUB)
+    return total
+
+
+async def update_usd_rate() -> float:
+    """Получает курс USD/RUB с ЦБ РФ и обновляет кэш."""
+    global _usd_rate_cache, _usd_rate_updated
+    import time
+    try:
+        async with aiohttp.ClientSession() as s:
+            r    = await s.get(
+                "https://www.cbr-xml-daily.ru/daily_json.js",
+                timeout=aiohttp.ClientTimeout(total=10)
+            )
+            data = await r.json(content_type=None)
+            rate = float(data["Valute"]["USD"]["Value"])
+            _usd_rate_cache   = rate
+            _usd_rate_updated = time.time()
+            return rate
+    except Exception:
+        return _usd_rate_cache
+
+
+async def rate_updater_loop():
+    """Фоновая задача: обновляет курс USD/RUB каждые 6 часов."""
+    while True:
+        await update_usd_rate()
+        await asyncio.sleep(6 * 3600)
 
 
 # ─── Split.tg API ─────────────────────────────────────────────────────────────
@@ -148,6 +193,44 @@ async def split_get_balance() -> float:
     except Exception:
         pass
     return 0.0
+
+
+async def split_buy_premium(username: str, months: int, user_id: int) -> bool:
+    """
+    Покупает Telegram Premium через Split.tg.
+    months: 3, 6 или 12
+    """
+    async with aiohttp.ClientSession() as s:
+        r = await s.post(
+            f"{SPLIT_BASE}/buy/premium",
+            headers=split_headers(),
+            json={
+                "username":       username,
+                "months":         months,
+                "payment_method": "balance",
+                "partner": {
+                    "name":             SPLIT_PARTNER,
+                    "external_user_id": user_id,
+                    "comment":          f"tg_bot_premium_{user_id}"
+                }
+            }
+        )
+        data = await r.json()
+
+        if not data.get("ok"):
+            raise Exception(data.get("error_message") or "Split Premium API error")
+
+        msg     = data.get("message") or {}
+        invoice = msg.get("invoice") or {}
+        status  = invoice.get("status", "")
+
+        if status in ("completed", "paid", "pending", "processing"):
+            return True
+
+        if not invoice and data.get("ok"):
+            return True
+
+        raise Exception(f"Неожиданный статус: {status!r}")
 
 
 # ─── FSM States ───────────────────────────────────────────────────────────────
@@ -1203,7 +1286,7 @@ async def premium_friend(callback: types.CallbackQuery):
 @dp.callback_query(lambda c: c.data.startswith("premium_period_"))
 async def premium_period(callback: types.CallbackQuery, state: FSMContext):
     months = callback.data.split("_")[-1]
-    price  = PREMIUM_PRICES[months]
+    price  = get_premium_price(int(months))
     user   = callback.from_user
 
     await state.update_data(months=months, price=price)
@@ -1238,9 +1321,74 @@ async def premium_period(callback: types.CallbackQuery, state: FSMContext):
 
 @dp.callback_query(lambda c: c.data == "premium_confirm")
 async def premium_confirm(callback: types.CallbackQuery, state: FSMContext):
-    # TODO: подключить МРКТ API здесь
-    await state.clear()
-    await callback.answer("Скоро будет доступно!", show_alert=True)
+    data    = await state.get_data()
+    months  = data.get("months")
+    price   = data.get("price", 0)
+    user_id = callback.from_user.id
+    user    = callback.from_user
+    username = user.username or str(user_id)
+
+    await callback.answer("⏳ Обрабатываем заказ...", show_alert=False)
+
+    try:
+        # Покупаем Premium через Split
+        await split_buy_premium(username, int(months), user_id)
+
+        # Списываем баланс и пишем лог
+        await deduct_balance(user_id, float(price))
+        await add_log(user_id, "buy_premium", f"{months} мес. → @{username}")
+
+        e1 = "⭐"
+        text = f"{e1} Готово, Telegram Premium придёт в течении нескольких минут"
+        entities = [MessageEntity(type="custom_emoji", offset=0, length=utf16_len(e1),
+                                  custom_emoji_id="5260463209562776385")]
+        await state.clear()
+        await callback.message.edit_caption(
+            caption=text,
+            reply_markup=build_main_keyboard(),
+            caption_entities=entities
+        )
+
+    except Exception as e:
+        err_reason = str(e)
+        await add_log(user_id, "buy_premium_error", err_reason)
+
+        try:
+            await bot.send_message(
+                ADMIN_ID,
+                f"❌ Ошибка покупки Premium\n"
+                f"👤 user_id: <code>{user_id}</code>\n"
+                f"💎 Months: {months} → @{username}\n"
+                f"💬 Причина: <code>{err_reason}</code>",
+                parse_mode="HTML"
+            )
+        except Exception:
+            pass
+
+        if "не найден" in err_reason.lower() or "recipient" in err_reason.lower():
+            user_msg = "Пользователь не найден в Telegram"
+        elif "balance" in err_reason.lower() or "insufficient" in err_reason.lower():
+            user_msg = "Недостаточно средств на балансе сервиса. Попробуйте позже"
+        elif "timeout" in err_reason.lower() or "connect" in err_reason.lower():
+            user_msg = "Сервис временно недоступен. Попробуйте через несколько минут"
+        elif "already" in err_reason.lower():
+            user_msg = "У пользователя уже есть активный Telegram Premium"
+        else:
+            user_msg = f"Ошибка: {err_reason}"
+
+        e1 = "⭐"
+        err_text = (
+            f"{e1} Покупка не выполнена\n\n"
+            f"Причина: {user_msg}\n\n"
+            f"Поддержка: @tntks"
+        )
+        err_entities = [MessageEntity(type="custom_emoji", offset=0, length=utf16_len(e1),
+                                      custom_emoji_id="5447644880824181073")]
+        await callback.message.edit_caption(
+            caption=err_text,
+            reply_markup=build_main_keyboard(),
+            caption_entities=err_entities
+        )
 
 
 # ─── Информация ───────────────────────────────────────────────────────────────
@@ -1361,6 +1509,8 @@ async def handle_stub_buttons(callback: types.CallbackQuery):
 
 async def main():
     await init_db()
+    await update_usd_rate()  # сразу получаем актуальный курс при старте
+    asyncio.create_task(rate_updater_loop())  # фоновое обновление каждые 6 часов
     await bot.set_my_commands([
         types.BotCommand(command="start", description="Меню")
     ])
