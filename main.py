@@ -36,59 +36,14 @@ COMMISSION = 0.08
 MIN_AMOUNT = 10
 STARS_RATE = 1.30
 STARS_MIN  = 50
+USD_RATE   = 90.0
 REF_PCT    = 5
 
-# Telegram Premium базовая цена в USD (официальная $4.99/мес)
-PREMIUM_USD_PER_MONTH = 4.99
-PREMIUM_MARKUP_RUB    = 30     # наценка в рублях на каждую подписку
-
-# Динамический курс USD/RUB — обновляется каждые 6 часов через ЦБ РФ
-_usd_rate_cache: float = 75.0
-_usd_rate_updated: float = 0.0
-
-PREMIUM_MONTHS_LABEL = {
-    "3":  "3 месяца",
-    "6":  "6 месяцев",
-    "12": "12 месяцев",
+PREMIUM_PRICES = {
+    "3":  0,
+    "6":  0,
+    "12": 0,
 }
-
-
-def get_usd_rate() -> float:
-    """Возвращает текущий кэшированный курс USD/RUB."""
-    return _usd_rate_cache
-
-
-def get_premium_price(months: int) -> int:
-    """Считает цену Premium в рублях по актуальному курсу + наценка."""
-    rate  = get_usd_rate()
-    total = round(PREMIUM_USD_PER_MONTH * months * rate + PREMIUM_MARKUP_RUB)
-    return total
-
-
-async def update_usd_rate() -> float:
-    """Получает курс USD/RUB с ЦБ РФ и обновляет кэш."""
-    global _usd_rate_cache, _usd_rate_updated
-    import time
-    try:
-        async with aiohttp.ClientSession() as s:
-            r    = await s.get(
-                "https://www.cbr-xml-daily.ru/daily_json.js",
-                timeout=aiohttp.ClientTimeout(total=10)
-            )
-            data = await r.json(content_type=None)
-            rate = float(data["Valute"]["USD"]["Value"])
-            _usd_rate_cache   = rate
-            _usd_rate_updated = time.time()
-            return rate
-    except Exception:
-        return _usd_rate_cache
-
-
-async def rate_updater_loop():
-    """Фоновая задача: обновляет курс USD/RUB каждые 6 часов."""
-    while True:
-        await update_usd_rate()
-        await asyncio.sleep(6 * 3600)
 
 
 # ─── Split.tg API ─────────────────────────────────────────────────────────────
@@ -106,27 +61,6 @@ async def split_check_recipient(username: str) -> dict | None:
         async with aiohttp.ClientSession() as s:
             r = await s.post(
                 f"{SPLIT_BASE}/recipients/stars",
-                headers=split_headers(),
-                json={"username": username}
-            )
-            data = await r.json()
-            if data.get("ok"):
-                return data.get("message")
-    except Exception:
-        pass
-    return None
-
-
-async def split_check_premium_recipient(username: str) -> dict | None:
-    """
-    Проверяет получателя Premium по username через Split API.
-    Возвращает данные пользователя или None если не найден.
-    Поле is_premium в ответе показывает есть ли уже Premium.
-    """
-    try:
-        async with aiohttp.ClientSession() as s:
-            r = await s.post(
-                f"{SPLIT_BASE}/recipients/premium",
                 headers=split_headers(),
                 json={"username": username}
             )
@@ -216,57 +150,21 @@ async def split_get_balance() -> float:
     return 0.0
 
 
-async def split_buy_premium(username: str, months: int, user_id: int) -> bool:
-    """
-    Покупает Telegram Premium через Split.tg.
-    months: 3, 6 или 12
-    """
-    async with aiohttp.ClientSession() as s:
-        r = await s.post(
-            f"{SPLIT_BASE}/buy/premium",
-            headers=split_headers(),
-            json={
-                "username":       username,
-                "months":         months,
-                "payment_method": "balance",
-                "partner": {
-                    "name":             SPLIT_PARTNER,
-                    "external_user_id": user_id,
-                    "comment":          f"tg_bot_premium_{user_id}"
-                }
-            }
-        )
-        data = await r.json()
-
-        if not data.get("ok"):
-            raise Exception(data.get("error_message") or "Split Premium API error")
-
-        msg     = data.get("message") or {}
-        invoice = msg.get("invoice") or {}
-        status  = invoice.get("status", "")
-
-        if status in ("completed", "paid", "pending", "processing"):
-            return True
-
-        if not invoice and data.get("ok"):
-            return True
-
-        raise Exception(f"Неожиданный статус: {status!r}")
-
-
 # ─── FSM States ───────────────────────────────────────────────────────────────
 
 class TopUpStates(StatesGroup):
     waiting_amount = State()
 
 
+class TonStates(StatesGroup):
+    enter_amount = State()
+    confirm      = State()
+
+
 class StarsStates(StatesGroup):
-    calculator         = State()
-    enter_stars_self   = State()
-    confirm_self       = State()
-    enter_friend_user  = State()
-    enter_stars_friend = State()
-    confirm_friend     = State()
+    calculator       = State()
+    enter_stars_self = State()
+    confirm_self     = State()
 
 
 class ReviewStates(StatesGroup):
@@ -274,9 +172,7 @@ class ReviewStates(StatesGroup):
 
 
 class PremiumStates(StatesGroup):
-    confirm_self        = State()
-    enter_friend_user   = State()
-    confirm_friend      = State()
+    confirm_self = State()
 
 
 def utf16_len(s: str) -> int:
@@ -306,8 +202,8 @@ def build_main_keyboard() -> InlineKeyboardMarkup:
                               icon_custom_emoji_id="5346309121794659890", style="success"),
          InlineKeyboardButton(text="Премиум", callback_data="buy_premium",
                               icon_custom_emoji_id="5274026806477857971", style="success")],
-        [InlineKeyboardButton(text="Эмодзи пак", callback_data="emoji_pack",
-                              icon_custom_emoji_id="5190573182439954711", style="primary")],
+        [InlineKeyboardButton(text="TON", callback_data="buy_ton",
+                              icon_custom_emoji_id="5240059263048517877", style="primary")],
         [InlineKeyboardButton(text="Мой профиль", callback_data="my_profile",
                               icon_custom_emoji_id="5870994129244131212"),
          InlineKeyboardButton(text="Рефка", callback_data="referral",
@@ -639,97 +535,8 @@ async def stars_self(callback: types.CallbackQuery, state: FSMContext):
 
 
 @dp.callback_query(lambda c: c.data == "stars_friend")
-async def stars_friend(callback: types.CallbackQuery, state: FSMContext):
-    e1 = "⭐"
-    text = f"{e1} Введите @username пользователя, которому хотите купить звезды:"
-    entities = [MessageEntity(type="custom_emoji", offset=0, length=utf16_len(e1),
-                              custom_emoji_id="5771887475421090729")]
-    kb = InlineKeyboardMarkup(inline_keyboard=[[back_btn("stars_who")]])
-    await callback.message.edit_caption(
-        caption=text,
-        reply_markup=kb,
-        caption_entities=entities
-    )
-    await state.set_state(StarsStates.enter_friend_user)
-    await state.update_data(bot_msg_id=callback.message.message_id)
-    await callback.answer()
-
-
-@dp.message(StarsStates.enter_friend_user)
-async def process_friend_username(message: types.Message, state: FSMContext):
-    await message.delete()
-    data       = await state.get_data()
-    bot_msg_id = data.get("bot_msg_id")
-    user_id    = message.from_user.id
-
-    raw = message.text.strip().lstrip("@")
-    if not raw:
-        return
-
-    recipient = f"@{raw}"
-    text, entities = await stars_enter_text(user_id, recipient)
-    kb = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="Калькулятор", callback_data="stars_calc_on",
-                              icon_custom_emoji_id="5415756135925829889")],
-        [back_btn("stars_who")]
-    ])
-    if bot_msg_id:
-        await bot.edit_message_caption(
-            chat_id=message.chat.id,
-            message_id=bot_msg_id,
-            caption=text,
-            reply_markup=kb,
-            caption_entities=entities
-        )
-    await state.set_state(StarsStates.enter_stars_friend)
-    await state.update_data(bot_msg_id=bot_msg_id, recipient=recipient)
-
-
-@dp.message(StarsStates.enter_stars_friend)
-async def process_stars_friend(message: types.Message, state: FSMContext):
-    await message.delete()
-    data       = await state.get_data()
-    bot_msg_id = data.get("bot_msg_id")
-    recipient  = data.get("recipient", "")
-    user_id    = message.from_user.id
-
-    try:
-        stars = int(message.text.strip())
-        if stars < STARS_MIN:
-            raise ValueError
-    except ValueError:
-        e        = "⭐"
-        err_text = f"{e} Минимум {STARS_MIN} звёзд"
-        err_entities = [MessageEntity(type="custom_emoji", offset=0, length=utf16_len(e),
-                                      custom_emoji_id="5273914604752216432")]
-        err_msg = await message.answer(err_text, entities=err_entities)
-        await asyncio.sleep(2)
-        await err_msg.delete()
-        return
-
-    balance  = await get_balance(user_id)
-    required = round(stars * STARS_RATE, 2)
-
-    if balance < required:
-        text, entities = await stars_no_funds_text(user_id, stars)
-        if bot_msg_id:
-            await bot.edit_message_caption(
-                chat_id=message.chat.id, message_id=bot_msg_id,
-                caption=text,
-                reply_markup=InlineKeyboardMarkup(inline_keyboard=[[back_btn("stars_who")]]),
-                caption_entities=entities
-            )
-    else:
-        await state.update_data(stars=stars)
-        text, entities = stars_confirm_text(recipient, stars)
-        if bot_msg_id:
-            await bot.edit_message_caption(
-                chat_id=message.chat.id, message_id=bot_msg_id,
-                caption=text,
-                reply_markup=build_confirm_keyboard(),
-                caption_entities=entities
-            )
-        await state.set_state(StarsStates.confirm_friend)
+async def stars_friend(callback: types.CallbackQuery):
+    await callback.answer("Скоро будет доступно!", show_alert=False)
 
 
 @dp.callback_query(lambda c: c.data == "stars_calc_on")
@@ -859,7 +666,7 @@ async def stars_confirm(callback: types.CallbackQuery, state: FSMContext):
         await add_log(user_id, "buy_stars", f"{stars} stars → @{username}")
 
         e1   = "⭐"
-        text = f"{e1} Готово, звёзды придут в течении нескольких минут"
+        text = f"{e1} Готово! {stars} звёзд отправлены пользователю @{username}"
         entities = [MessageEntity(type="custom_emoji", offset=0, length=utf16_len(e1),
                                   custom_emoji_id="5260463209562776385")]
         await state.clear()
@@ -870,40 +677,9 @@ async def stars_confirm(callback: types.CallbackQuery, state: FSMContext):
         )
 
     except Exception as e:
-        err_reason = str(e)
-        await add_log(user_id, "buy_stars_error", err_reason)
-
-        # Уведомляем админа с полной причиной
-        try:
-            await bot.send_message(
-                ADMIN_ID,
-                f"❌ Ошибка покупки звёзд\n"
-                f"👤 user_id: <code>{user_id}</code>\n"
-                f"⭐ Stars: {stars} → @{username}\n"
-                f"💬 Причина: <code>{err_reason}</code>",
-                parse_mode="HTML"
-            )
-        except Exception:
-            pass
-
-        # Формируем понятное сообщение пользователю
-        if "не найден" in err_reason.lower() or "recipient" in err_reason.lower():
-            user_msg = "Пользователь не найден в Telegram или не может получить звёзды"
-        elif "balance" in err_reason.lower() or "insufficient" in err_reason.lower():
-            user_msg = "Недостаточно средств на балансе сервиса. Попробуйте позже"
-        elif "timeout" in err_reason.lower() or "connect" in err_reason.lower():
-            user_msg = "Сервис временно недоступен. Попробуйте через несколько минут"
-        elif "api" in err_reason.lower() or "split" in err_reason.lower():
-            user_msg = f"Ошибка платёжного сервиса: {err_reason}"
-        else:
-            user_msg = f"Ошибка: {err_reason}"
-
-        e1 = "⭐"
-        err_text = (
-            f"{e1} Покупка не выполнена\n\n"
-            f"Причина: {user_msg}\n\n"
-            f"Поддержка: @tntks"
-        )
+        await add_log(user_id, "buy_stars_error", str(e))
+        e1       = "⭐"
+        err_text = f"{e1} Ошибка при покупке. Попробуйте позже или обратитесь в поддержку @tntks"
         err_entities = [MessageEntity(type="custom_emoji", offset=0, length=utf16_len(e1),
                                       custom_emoji_id="5447644880824181073")]
         await callback.message.edit_caption(
@@ -1302,92 +1078,22 @@ async def premium_self(callback: types.CallbackQuery, state: FSMContext):
 
 
 @dp.callback_query(lambda c: c.data == "premium_friend")
-async def premium_friend(callback: types.CallbackQuery, state: FSMContext):
-    e1   = "⭐"
-    text = f"{e1} Введите @username пользователя, которому хотите купить Premium:"
-    entities = [MessageEntity(type="custom_emoji", offset=0, length=utf16_len(e1),
-                              custom_emoji_id="5771887475421090729")]
-    kb = InlineKeyboardMarkup(inline_keyboard=[[back_btn("buy_premium")]])
-    await callback.message.edit_caption(
-        caption=text,
-        reply_markup=kb,
-        caption_entities=entities
-    )
-    await state.set_state(PremiumStates.enter_friend_user)
-    await state.update_data(bot_msg_id=callback.message.message_id)
-    await callback.answer()
-
-
-@dp.message(PremiumStates.enter_friend_user)
-async def process_premium_friend_username(message: types.Message, state: FSMContext):
-    await message.delete()
-    data       = await state.get_data()
-    bot_msg_id = data.get("bot_msg_id")
-    raw        = message.text.strip().lstrip("@")
-    if not raw:
-        return
-
-    # Проверяем через Split API
-    recip_data = await split_check_premium_recipient(raw)
-
-    # None = пользователь не найден в Telegram
-    if recip_data is None:
-        e       = "⭐"
-        err_msg = await message.answer(
-            f"{e} Пользователь @{raw} не найден. Проверьте username и попробуйте снова.",
-            entities=[MessageEntity(type="custom_emoji", offset=0, length=utf16_len(e),
-                                    custom_emoji_id="5273914604752216432")]
-        )
-        await asyncio.sleep(1)
-        await err_msg.delete()
-        return
-
-    # Split возвращает is_premium только если Premium есть
-    if recip_data.get("is_premium", False):
-        e       = "⭐"
-        err_msg = await message.answer(
-            f"{e} Ошибка! У пользователя @{raw} уже есть Telegram Premium!",
-            entities=[MessageEntity(type="custom_emoji", offset=0, length=utf16_len(e),
-                                    custom_emoji_id="5273914604752216432")]
-        )
-        await asyncio.sleep(1)
-        await err_msg.delete()
-        return
-
-    # Всё ок — пользователь найден, Premium нет → допускаем к покупке
-    recipient = f"@{raw}"
-    await state.update_data(recipient=recipient)
-
-    e1       = "⭐"
-    line1    = f"{e1} Выберите период подписки для @{raw}:"
-    entities = [MessageEntity(type="custom_emoji", offset=0,
-                              length=utf16_len(e1), custom_emoji_id="5274026806477857971")]
-
-    if bot_msg_id:
-        await bot.edit_message_caption(
-            chat_id=message.chat.id,
-            message_id=bot_msg_id,
-            caption=line1,
-            reply_markup=build_premium_period_keyboard(),
-            caption_entities=entities
-        )
-    await state.set_state(PremiumStates.confirm_friend)
+async def premium_friend(callback: types.CallbackQuery):
+    await callback.answer("Скоро будет доступно!", show_alert=False)
 
 
 @dp.callback_query(lambda c: c.data.startswith("premium_period_"))
 async def premium_period(callback: types.CallbackQuery, state: FSMContext):
-    months    = callback.data.split("_")[-1]
-    price     = get_premium_price(int(months))
-    data      = await state.get_data()
-    user      = callback.from_user
-    recipient = data.get("recipient") or f"@{user.username or user.id}"
+    months = callback.data.split("_")[-1]
+    price  = PREMIUM_PRICES[months]
+    user   = callback.from_user
 
-    await state.update_data(months=months, price=price, recipient=recipient)
+    await state.update_data(months=months, price=price)
 
     e1 = "⭐"; e2 = "⭐"; e3 = "⭐"; e4 = "⭐"
 
     line1 = f"{e1} Подтверждение\n\n"
-    line2 = f"{e2} Получатель: {recipient}\n"
+    line2 = f"{e2} Получатель: @{user.username or user.first_name}\n"
     line3 = f"{e3} Период: {months} мес.\n"
     line4 = f"{e4} Итого к оплате: {price} RUB"
     text  = line1 + line2 + line3 + line4
@@ -1414,76 +1120,9 @@ async def premium_period(callback: types.CallbackQuery, state: FSMContext):
 
 @dp.callback_query(lambda c: c.data == "premium_confirm")
 async def premium_confirm(callback: types.CallbackQuery, state: FSMContext):
-    data    = await state.get_data()
-    months  = data.get("months")
-    price   = data.get("price", 0)
-    user_id = callback.from_user.id
-    user      = callback.from_user
-    recipient = data.get("recipient") or f"@{user.username or user.id}"
-    username  = recipient.lstrip("@")
-
-    await callback.answer("⏳ Обрабатываем заказ...", show_alert=False)
-
-    try:
-        # Покупаем Premium через Split
-        await split_buy_premium(username, int(months), user_id)
-
-        # Списываем баланс и пишем лог
-        await deduct_balance(user_id, float(price))
-        await add_log(user_id, "buy_premium", f"{months} мес. → @{username}")
-
-        e1 = "⭐"
-        text = f"{e1} Готово, Telegram Premium придёт в течении нескольких минут"
-        entities = [MessageEntity(type="custom_emoji", offset=0, length=utf16_len(e1),
-                                  custom_emoji_id="5260463209562776385")]
-        await state.clear()
-        await callback.message.edit_caption(
-            caption=text,
-            reply_markup=build_main_keyboard(),
-            caption_entities=entities
-        )
-
-    except Exception as e:
-        err_reason = str(e)
-        await add_log(user_id, "buy_premium_error", err_reason)
-
-        try:
-            await bot.send_message(
-                ADMIN_ID,
-                f"❌ Ошибка покупки Premium\n"
-                f"👤 user_id: <code>{user_id}</code>\n"
-                f"💎 Months: {months} → @{username}\n"
-                f"💬 Причина: <code>{err_reason}</code>",
-                parse_mode="HTML"
-            )
-        except Exception:
-            pass
-
-        el = err_reason.lower()
-        if "already" in el or "premium" in el and ("has" in el or "exist" in el or "active" in el):
-            user_msg = f"У пользователя @{username} уже есть Telegram Premium!"
-        elif "не найден" in el or "not found" in el or "recipient" in el or "user" in el and "found" in el:
-            user_msg = f"Пользователь @{username} не найден в Telegram"
-        elif "balance" in el or "insufficient" in el or "funds" in el:
-            user_msg = "Недостаточно средств на балансе сервиса. Попробуйте позже"
-        elif "timeout" in el or "connect" in el:
-            user_msg = "Сервис временно недоступен. Попробуйте через несколько минут"
-        else:
-            user_msg = f"Ошибка: {err_reason}"
-
-        e1 = "⭐"
-        err_text = (
-            f"{e1} Покупка не выполнена\n\n"
-            f"Причина: {user_msg}\n\n"
-            f"Поддержка: @tntks"
-        )
-        err_entities = [MessageEntity(type="custom_emoji", offset=0, length=utf16_len(e1),
-                                      custom_emoji_id="5447644880824181073")]
-        await callback.message.edit_caption(
-            caption=err_text,
-            reply_markup=build_main_keyboard(),
-            caption_entities=err_entities
-        )
+    # TODO: подключить МРКТ API здесь
+    await state.clear()
+    await callback.answer("Скоро будет доступно!", show_alert=True)
 
 
 # ─── Информация ───────────────────────────────────────────────────────────────
@@ -1595,17 +1234,180 @@ async def receive_review(message: types.Message, state: FSMContext):
 
 # ─── Заглушки ─────────────────────────────────────────────────────────────────
 
-@dp.callback_query(lambda c: c.data == "emoji_pack")
-async def handle_stub_buttons(callback: types.CallbackQuery):
-    await callback.answer("Скоро будет доступно!", show_alert=False)
+@dp.callback_query(lambda c: c.data == "buy_ton")
+async def handle_buy_ton(callback: types.CallbackQuery, state: FSMContext):
+    rate = get_ton_rate()
+    if rate <= 0:
+        rate = await fetch_ton_rate()
+    rate_str = f"{rate:.2f}" if rate > 0 else "загружается..."
+    e1 = "\u2b50"
+    e2 = "\u2b50"
+    p1 = e1 + " Покупка TON\n\n"
+    p2 = e2 + " Текущий курс: " + rate_str + " RUB\n\nВведите количество TON, которое хотите купить:"
+    text = p1 + p2
+    entities = [
+        MessageEntity(type="custom_emoji", offset=0,
+                      length=utf16_len(e1), custom_emoji_id="5240059263048517877"),
+        MessageEntity(type="custom_emoji", offset=utf16_len(p1),
+                      length=utf16_len(e2), custom_emoji_id="5312441427764989435"),
+    ]
+    kb = InlineKeyboardMarkup(inline_keyboard=[[back_btn("main_menu")]])
+    await callback.message.edit_caption(
+        caption=text, reply_markup=kb, caption_entities=entities
+    )
+    await state.set_state(TonStates.enter_amount)
+    await state.update_data(bot_msg_id=callback.message.message_id)
+    await callback.answer()
+
+
+@dp.message(TonStates.enter_amount)
+async def process_ton_amount(message: types.Message, state: FSMContext):
+    await message.delete()
+    data = await state.get_data()
+    bot_msg_id = data.get("bot_msg_id")
+    user_id = message.from_user.id
+    try:
+        amount = float(message.text.strip().replace(",", "."))
+        if amount <= 0:
+            raise ValueError
+    except ValueError:
+        e = "\u2b50"
+        err = await message.answer(
+            e + " Введите корректное количество TON (например: 1.5)",
+            entities=[MessageEntity(type="custom_emoji", offset=0,
+                                    length=utf16_len(e),
+                                    custom_emoji_id="5273914604752216432")],
+        )
+        await asyncio.sleep(2)
+        await err.delete()
+        return
+    rate = get_ton_rate()
+    required = round(amount * rate, 2)
+    balance = await get_balance(user_id)
+    if balance < required:
+        e = "\u2b50"
+        err = await message.answer(
+            e + f" Недостаточно средств. Нужно {required:.2f} RUB, у вас {balance:.2f} RUB",
+            entities=[MessageEntity(type="custom_emoji", offset=0,
+                                    length=utf16_len(e),
+                                    custom_emoji_id="5273914604752216432")],
+        )
+        await asyncio.sleep(3)
+        await err.delete()
+        return
+    await state.update_data(ton_amount=amount, ton_price=required)
+    e1 = "\u2b50"; e2 = "\u2b50"; e3 = "\u2b50"; e4 = "\u2b50"
+    l1 = e1 + " Подтверждение\n\n"
+    l2 = e2 + f" Количество TON: {amount}\n"
+    l3 = e3 + f" Курс: {rate:.2f} RUB/TON\n"
+    l4 = e4 + f" Итого к оплате: {required:.2f} RUB"
+    text = l1 + l2 + l3 + l4
+    entities = [
+        MessageEntity(type="custom_emoji", offset=0,
+                      length=utf16_len(e1), custom_emoji_id="5240059263048517877"),
+        MessageEntity(type="custom_emoji", offset=utf16_len(l1),
+                      length=utf16_len(e2), custom_emoji_id="5312441427764989435"),
+        MessageEntity(type="custom_emoji", offset=utf16_len(l1 + l2),
+                      length=utf16_len(e3), custom_emoji_id="5312441427764989435"),
+        MessageEntity(type="custom_emoji", offset=utf16_len(l1 + l2 + l3),
+                      length=utf16_len(e4), custom_emoji_id="5312441427764989435"),
+    ]
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="\u2705 Подтвердить", callback_data="ton_confirm",
+                              icon_custom_emoji_id="5368446439800197476")],
+        [back_btn("buy_ton")],
+    ])
+    if bot_msg_id:
+        await bot.edit_message_caption(
+            chat_id=message.chat.id, message_id=bot_msg_id,
+            caption=text, reply_markup=kb, caption_entities=entities,
+        )
+    await state.set_state(TonStates.confirm)
+
+
+@dp.callback_query(lambda c: c.data == "ton_confirm")
+async def ton_confirm(callback: types.CallbackQuery, state: FSMContext):
+    await callback.answer("\u23f3 Обрабатываем заказ...", show_alert=False)
+    data = await state.get_data()
+    amount = data.get("ton_amount", 0)
+    price = data.get("ton_price", 0)
+    user_id = callback.from_user.id
+    user = callback.from_user
+    username = user.username or str(user_id)
+    await deduct_balance(user_id, float(price))
+    await add_log(user_id, "buy_ton", f"{amount} TON za {price} RUB")
+    try:
+        await bot.send_message(
+            ADMIN_ID,
+            "\U0001f48e Новый заказ TON\n"
+            f"\U0001f464 @{username} (id: <code>{user_id}</code>)\n"
+            f"\U0001f48e {amount} TON\n"
+            f"\U0001f4b0 {price:.2f} RUB списано",
+            parse_mode="HTML",
+        )
+    except Exception:
+        pass
+    await state.clear()
+    e1 = "\u2b50"
+    text = e1 + " Заявка принята! Менеджер свяжется с вами для отправки TON."
+    entities = [MessageEntity(type="custom_emoji", offset=0,
+                              length=utf16_len(e1),
+                              custom_emoji_id="5240059263048517877")]
+    await callback.message.edit_caption(
+        caption=text, reply_markup=build_main_keyboard(), caption_entities=entities
+    )
+
+
+
+# --- Курс TON/RUB ---
+
+TON_MARKUP_RUB = 13
+_ton_rate_cache = 0.0
+
+
+def get_ton_rate():
+    return _ton_rate_cache
+
+
+async def fetch_ton_rate():
+    global _ton_rate_cache
+    import re
+    try:
+        async with aiohttp.ClientSession() as s:
+            r = await s.get(
+                "https://t.me/s/tonrubprice",
+                timeout=aiohttp.ClientTimeout(total=10),
+                headers={"User-Agent": "Mozilla/5.0"},
+            )
+            html = await r.text()
+        matches = re.findall(
+            r"(?:1\s*TON\s*[=:]\s*|\brate\b[:\s]+)(\d{2,4}(?:[.,]\d{1,2})?)",
+            html,
+            re.IGNORECASE,
+        )
+        if not matches:
+            matches = re.findall(r"\b(\d{3,4}(?:[.,]\d{1,2})?)\b", html[-2000:])
+        if matches:
+            rate = float(matches[-1].replace(",", ".")) + TON_MARKUP_RUB
+            _ton_rate_cache = round(rate, 2)
+            return _ton_rate_cache
+    except Exception:
+        pass
+    return _ton_rate_cache
+
+
+async def ton_rate_updater_loop():
+    while True:
+        await fetch_ton_rate()
+        await asyncio.sleep(300)
 
 
 # ─── Запуск ───────────────────────────────────────────────────────────────────
 
 async def main():
     await init_db()
-    await update_usd_rate()  # сразу получаем актуальный курс при старте
-    asyncio.create_task(rate_updater_loop())  # фоновое обновление каждые 6 часов
+    await fetch_ton_rate()
+    asyncio.create_task(ton_rate_updater_loop())
     await bot.set_my_commands([
         types.BotCommand(command="start", description="Меню")
     ])
