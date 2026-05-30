@@ -117,6 +117,27 @@ async def split_check_recipient(username: str) -> dict | None:
     return None
 
 
+async def split_check_premium_recipient(username: str) -> dict | None:
+    """
+    Проверяет получателя Premium по username через Split API.
+    Возвращает данные пользователя или None если не найден.
+    Поле is_premium в ответе показывает есть ли уже Premium.
+    """
+    try:
+        async with aiohttp.ClientSession() as s:
+            r = await s.post(
+                f"{SPLIT_BASE}/recipients/premium",
+                headers=split_headers(),
+                json={"username": username}
+            )
+            data = await r.json()
+            if data.get("ok"):
+                return data.get("message")
+    except Exception:
+        pass
+    return None
+
+
 async def split_buy_stars(username: str, quantity: int, user_id: int) -> bool:
     """
     Покупает звёзды через Split.tg (payment_method: balance).
@@ -1307,6 +1328,47 @@ async def process_premium_friend_username(message: types.Message, state: FSMCont
         return
 
     recipient = f"@{raw}"
+
+    # Проверяем пользователя через Split API
+    recip_data = await split_check_premium_recipient(raw)
+
+    if recip_data is None:
+        # Пользователь не найден в Telegram
+        e = "⭐"
+        err_text = f"{e} Пользователь @{raw} не найден. Проверьте username и попробуйте снова:"
+        err_ent  = [MessageEntity(type="custom_emoji", offset=0, length=utf16_len(e),
+                                  custom_emoji_id="5273914604752216432")]
+        kb = InlineKeyboardMarkup(inline_keyboard=[[back_btn("buy_premium")]])
+        if bot_msg_id:
+            await bot.edit_message_caption(
+                chat_id=message.chat.id,
+                message_id=bot_msg_id,
+                caption=err_text,
+                reply_markup=kb,
+                caption_entities=err_ent
+            )
+        # Остаёмся в том же state чтобы можно было ввести другой username
+        return
+
+    # Проверяем есть ли уже Premium
+    has_premium = recip_data.get("is_premium", False)
+    if has_premium:
+        e = "⭐"
+        err_text = f"{e} У пользователя @{raw} уже есть Telegram Premium!"
+        err_ent  = [MessageEntity(type="custom_emoji", offset=0, length=utf16_len(e),
+                                  custom_emoji_id="5273914604752216432")]
+        kb = InlineKeyboardMarkup(inline_keyboard=[[back_btn("buy_premium")]])
+        if bot_msg_id:
+            await bot.edit_message_caption(
+                chat_id=message.chat.id,
+                message_id=bot_msg_id,
+                caption=err_text,
+                reply_markup=kb,
+                caption_entities=err_ent
+            )
+        return
+
+    # Всё ок — сохраняем и показываем выбор периода
     await state.update_data(recipient=recipient)
 
     e1    = "⭐"
