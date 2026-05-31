@@ -492,8 +492,9 @@ async def cmd_start(message: types.Message, state: FSMContext):
         await message.answer(text=text, reply_markup=build_main_keyboard(), entities=entities)
 
 
-@dp.callback_query(lambda c: c.data == "back_to_main")
+@dp.callback_query(lambda c: c.data in ("back_to_main", "main_menu"))
 async def back_to_main(callback: types.CallbackQuery, state: FSMContext):
+    await state.clear()
     await show_main(callback, state)
     await callback.answer()
 
@@ -1360,9 +1361,9 @@ async def process_ton_wallet(message: types.Message, state: FSMContext):
                       length=utf16_len(e4), custom_emoji_id="5289970176052179025"),
     ]
     kb = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="\u2705 Подтвердить", callback_data="ton_confirm",
+        [InlineKeyboardButton(text="Подтвердить", callback_data="ton_confirm",
                               icon_custom_emoji_id="5260463209562776385", style="success")],
-        [InlineKeyboardButton(text="\u274c Отменить", callback_data="buy_ton",
+        [InlineKeyboardButton(text="Отменить", callback_data="buy_ton",
                               icon_custom_emoji_id="5273914604752216432", style="danger")],
     ])
     if bot_msg_id:
@@ -1424,10 +1425,12 @@ async def ton_confirm(callback: types.CallbackQuery, state: FSMContext):
         f"\U0001f4e9 Кошелёк:\n<code>{wallet}</code>"
     )
     admin_kb = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="\u2705 Выполнил",
-                              callback_data=f"ton_done:{user_id}:{amount}:{wallet}"),
-         InlineKeyboardButton(text="\u274c Отмена",
-                              callback_data=f"ton_cancel:{user_id}:{amount}:{price}")],
+        [InlineKeyboardButton(text="✅ Выполнил",
+                              callback_data=f"ton_done:{user_id}:{amount}:{wallet}",
+                              style="success"),
+         InlineKeyboardButton(text="❌ Отмена",
+                              callback_data=f"ton_cancel:{user_id}:{amount}:{price}",
+                              style="danger")],
     ])
     await bot.send_message(ADMIN_ID, admin_text, parse_mode="HTML", reply_markup=admin_kb)
 
@@ -1476,8 +1479,7 @@ async def ton_admin_cancel(callback: types.CallbackQuery, state: FSMContext):
     await callback.message.reply("\u270f\ufe0f Укажите причину отмены:")
 
 
-@dp.message(lambda m: m.reply_to_message and m.from_user.id == ADMIN_ID and
-            m.reply_to_message.from_user.id == (lambda b: b.id)(callback.bot if hasattr(m, '_bot') else m.bot))
+@dp.message(lambda m: m.reply_to_message is not None and m.from_user.id == ADMIN_ID)
 async def ton_cancel_reason(message: types.Message, state: FSMContext):
     data = await state.get_data()
     uid    = data.get("ton_cancel_uid")
@@ -1514,27 +1516,42 @@ def get_ton_rate():
 
 
 async def fetch_ton_rate():
+    """Получает курс TON/RUB через CoinGecko API + наценка 13 руб."""
     global _ton_rate_cache
-    import re
     try:
         async with aiohttp.ClientSession() as s:
             r = await s.get(
-                "https://t.me/s/tonrubprice",
+                "https://api.coingecko.com/api/v3/simple/price",
+                params={"ids": "the-open-network", "vs_currencies": "rub"},
                 timeout=aiohttp.ClientTimeout(total=10),
                 headers={"User-Agent": "Mozilla/5.0"},
             )
-            html = await r.text()
-        matches = re.findall(
-            r"(?:1\s*TON\s*[=:]\s*|\brate\b[:\s]+)(\d{2,4}(?:[.,]\d{1,2})?)",
-            html,
-            re.IGNORECASE,
-        )
-        if not matches:
-            matches = re.findall(r"\b(\d{3,4}(?:[.,]\d{1,2})?)\b", html[-2000:])
-        if matches:
-            rate = float(matches[-1].replace(",", ".")) + TON_MARKUP_RUB
+            data = await r.json()
+            rate = float(data["the-open-network"]["rub"]) + TON_MARKUP_RUB
             _ton_rate_cache = round(rate, 2)
             return _ton_rate_cache
+    except Exception:
+        pass
+    # Fallback: попробуем Binance (TONUSDT * USD/RUB)
+    try:
+        async with aiohttp.ClientSession() as s:
+            r1 = await s.get(
+                "https://api.binance.com/api/v3/ticker/price",
+                params={"symbol": "TONUSDT"},
+                timeout=aiohttp.ClientTimeout(total=10),
+            )
+            r2 = await s.get(
+                "https://api.binance.com/api/v3/ticker/price",
+                params={"symbol": "USDTRUB"},
+                timeout=aiohttp.ClientTimeout(total=10),
+            )
+            d1 = await r1.json()
+            d2 = await r2.json()
+            ton_usd = float(d1["price"])
+            usd_rub = float(d2["price"])
+            rate = round(ton_usd * usd_rub + TON_MARKUP_RUB, 2)
+            _ton_rate_cache = rate
+            return rate
     except Exception:
         pass
     return _ton_rate_cache
