@@ -154,14 +154,21 @@ async def get_total_orders(user_id: int) -> int:
 
 
 async def get_order_history(user_id: int, limit: int = 20) -> list:
-    """Возвращает список заказов (buy_stars, buy_premium) для пользователя."""
+    """Возвращает список заказов для пользователя."""
     async with pool.acquire() as conn:
         rows = await conn.fetch("""
-            SELECT id, action, details, created_at FROM logs
-             WHERE user_id = $1 AND action IN ('buy_stars', 'buy_premium', 'buy_ton')
-             AND details NOT LIKE 'отмена%'
-             ORDER BY created_at DESC
-             LIMIT $2
+            SELECT l.id, l.action, l.details,
+                   COALESCE(t.created_at, l.created_at) AS created_at
+            FROM logs l
+            LEFT JOIN ton_orders t
+                   ON l.action = 'buy_ton'
+                  AND t.user_id = l.user_id
+                  AND l.details LIKE (t.amount::text || ' TON -> ' || t.wallet || '%')
+            WHERE l.user_id = $1
+              AND l.action IN ('buy_stars', 'buy_premium', 'buy_ton')
+              AND l.details NOT LIKE 'отмена%%'
+            ORDER BY COALESCE(t.created_at, l.created_at) DESC NULLS LAST
+            LIMIT $2
         """, user_id, limit)
         return [
             {
