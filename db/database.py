@@ -147,7 +147,7 @@ async def get_total_orders(user_id: int) -> int:
     async with pool.acquire() as conn:
         row = await conn.fetchrow("""
             SELECT COUNT(*) AS cnt FROM logs
-             WHERE user_id = $1 AND action = 'buy_stars'
+             WHERE user_id = $1 AND action IN ('buy_stars', 'buy_premium', 'buy_ton')
         """, user_id)
         return int(row["cnt"]) if row else 0
 
@@ -157,7 +157,7 @@ async def get_order_history(user_id: int, limit: int = 20) -> list:
     async with pool.acquire() as conn:
         rows = await conn.fetch("""
             SELECT id, action, details, created_at FROM logs
-             WHERE user_id = $1 AND action IN ('buy_stars', 'buy_premium')
+             WHERE user_id = $1 AND action IN ('buy_stars', 'buy_premium', 'buy_ton')
              ORDER BY created_at DESC
              LIMIT $2
         """, user_id, limit)
