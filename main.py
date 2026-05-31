@@ -1484,10 +1484,8 @@ async def ton_confirm(callback: types.CallbackQuery, state: FSMContext):
 
     try:
         await deduct_balance(user_id, float(price))
-        import datetime
-        now = datetime.datetime.now(datetime.timezone.utc)
         order_id = await create_ton_order(user_id, float(amount), wallet, float(price))
-        await add_log(user_id, "buy_ton", f"{amount} TON -> {wallet} | {price} RUB", created_at=now)
+        await add_log(user_id, "buy_ton", f"{amount} TON -> {wallet} | {price} RUB")
         await state.clear()
     except Exception as e:
         await bot.send_message(
