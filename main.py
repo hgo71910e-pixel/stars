@@ -951,7 +951,13 @@ async def order_detail(callback: types.CallbackQuery):
 
     action  = order["action"]
     details = order["details"] or ""
-    created = str(order["created_at"])[:16].replace("T", " ")
+    raw_dt  = order["created_at"]
+    if raw_dt is None:
+        created = "—"
+    elif hasattr(raw_dt, "strftime"):
+        created = raw_dt.strftime("%d.%m.%Y %H:%M")
+    else:
+        created = str(raw_dt)[:16].replace("T", " ")
 
     e1 = "⭐"; e2 = "⭐"; e3 = "⭐"; e4 = "⭐"
 
