@@ -1457,7 +1457,6 @@ async def ton_confirm(callback: types.CallbackQuery, state: FSMContext):
 
 @dp.callback_query(lambda c: c.data.startswith("ton_done:"))
 async def ton_admin_done(callback: types.CallbackQuery):
-    await callback.answer()
     order_id = int(callback.data.split(":")[1])
     order = await get_ton_order(order_id)
     if not order:
@@ -1466,6 +1465,7 @@ async def ton_admin_done(callback: types.CallbackQuery):
     if order["status"] != "pending":
         await callback.answer("Заявка уже обработана", show_alert=True)
         return
+    await callback.answer()
 
     uid    = order["user_id"]
     amount = order["amount"]
@@ -1515,21 +1515,6 @@ async def ton_admin_cancel(callback: types.CallbackQuery):
     if order["status"] != "pending":
         await callback.answer("Заявка уже обработана", show_alert=True)
         return
-    _pending_cancels[callback.from_user.id] = order_id
-    await callback.message.reply(f"✏️ Укажите причину отмены заявки #{order_id}:")
-
-
-@dp.message(lambda m: m.from_user.id == ADMIN_ID)
-async def ton_cancel_reason(message: types.Message):
-    # Проверяем есть ли pending отмена для этого админа
-    order_id = _pending_cancels.pop(message.from_user.id, None)
-    if not order_id:
-        return  # не наш handler, пропускаем
-
-    order = await get_ton_order(order_id)
-    if not order or order["status"] != "pending":
-        await message.answer("Заявка уже обработана или не найдена.")
-        return
 
     uid    = order["user_id"]
     amount = order["amount"]
@@ -1555,7 +1540,10 @@ async def ton_cancel_reason(message: types.Message):
         await bot.send_message(uid, text, entities=ent)
     except Exception:
         pass
-    await message.answer("✅ Отмена отправлена, баланс возвращён.")
+    await callback.message.edit_text(
+        callback.message.html_text + "\n\n❌ <b>Отменено</b>",
+        reply_markup=None, parse_mode="HTML"
+    )
 
 
 
