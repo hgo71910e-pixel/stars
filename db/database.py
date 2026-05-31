@@ -361,3 +361,21 @@ async def set_ton_order_status(order_id: int, status: str):
             "UPDATE ton_orders SET status = $2 WHERE id = $1",
             order_id, status
         )
+
+
+async def get_order_by_id(order_id: int) -> dict:
+    """Возвращает заказ из logs по ID."""
+    async with pool.acquire() as conn:
+        row = await conn.fetchrow(
+            "SELECT id, user_id, action, details, created_at FROM logs WHERE id = $1",
+            order_id
+        )
+        if not row:
+            return None
+        return {
+            "id":         row["id"],
+            "user_id":    row["user_id"],
+            "action":     row["action"],
+            "details":    row["details"] or "",
+            "created_at": row["created_at"],
+        }
