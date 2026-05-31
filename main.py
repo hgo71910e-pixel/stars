@@ -1519,34 +1519,43 @@ async def ton_admin_cancel(callback: types.CallbackQuery):
     await callback.message.reply(f"✏️ Укажите причину отмены заявки #{order_id}:")
 
 
-@dp.message(lambda m: m.from_user.id == ADMIN_ID and m.from_user.id in _pending_cancels)
+@dp.message(lambda m: m.from_user.id == ADMIN_ID)
 async def ton_cancel_reason(message: types.Message):
+    # Проверяем есть ли pending отмена для этого админа
     order_id = _pending_cancels.pop(message.from_user.id, None)
     if not order_id:
-        return
+        return  # не наш handler, пропускаем
+
     order = await get_ton_order(order_id)
     if not order or order["status"] != "pending":
-        await message.reply("Заявка уже обработана или не найдена.")
+        await message.answer("Заявка уже обработана или не найдена.")
         return
+
     uid    = order["user_id"]
     amount = order["amount"]
     price  = order["price"]
-    reason = message.text.strip()
 
     await set_ton_order_status(order_id, "cancelled")
     await add_balance(uid, float(price))
-    await add_log(uid, "ton_cancel", f"#{order_id} отмена {amount} TON, возврат {price} RUB: {reason}")
+    await add_log(uid, "ton_cancel", f"#{order_id} отмена {amount} TON, возврат {price} RUB")
 
-    e1 = "\u2b50"
-    text = (e1 + f" Ваша заявка #{order_id} на покупку {amount} TON отменена."
-            f"\n\nПричина: {reason}\n\nСредства возвращены на баланс.")
-    ent = [MessageEntity(type="custom_emoji", offset=0,
-                         length=utf16_len(e1), custom_emoji_id="5273914604752216432")]
+    balance = await get_balance(uid)
+
+    e1 = "\u2b50"; e2 = "\u2b50"
+    l1 = e1 + " Покупка TON отклонена\n\nДеньги возвращены на баланс\n"
+    l2 = e2 + f" Баланс: {balance:.2f} RUB"
+    text = l1 + l2
+    ent = [
+        MessageEntity(type="custom_emoji", offset=0,
+                      length=utf16_len(e1), custom_emoji_id="5273914604752216432"),
+        MessageEntity(type="custom_emoji", offset=utf16_len(l1),
+                      length=utf16_len(e2), custom_emoji_id="5289970176052179025"),
+    ]
     try:
         await bot.send_message(uid, text, entities=ent)
     except Exception:
         pass
-    await message.reply("✅ Отмена отправлена, баланс возвращён.")
+    await message.answer("✅ Отмена отправлена, баланс возвращён.")
 
 
 
