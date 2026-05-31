@@ -1506,7 +1506,6 @@ _pending_cancels: dict[int, int] = {}
 
 @dp.callback_query(lambda c: c.data.startswith("ton_cancel:"))
 async def ton_admin_cancel(callback: types.CallbackQuery):
-    await callback.answer()
     order_id = int(callback.data.split(":")[1])
     order = await get_ton_order(order_id)
     if not order:
@@ -1515,6 +1514,7 @@ async def ton_admin_cancel(callback: types.CallbackQuery):
     if order["status"] != "pending":
         await callback.answer("Заявка уже обработана", show_alert=True)
         return
+    await callback.answer()
 
     uid    = order["user_id"]
     amount = order["amount"]
@@ -1540,10 +1540,13 @@ async def ton_admin_cancel(callback: types.CallbackQuery):
         await bot.send_message(uid, text, entities=ent)
     except Exception:
         pass
-    await callback.message.edit_text(
-        callback.message.html_text + "\n\n❌ <b>Отменено</b>",
-        reply_markup=None, parse_mode="HTML"
-    )
+    try:
+        await callback.message.edit_text(
+            callback.message.html_text + "\n\n❌ <b>Отменено</b>",
+            reply_markup=None, parse_mode="HTML"
+        )
+    except Exception:
+        pass
 
 
 
