@@ -161,38 +161,29 @@ async def get_total_orders(user_id: int) -> int:
 async def get_order_history(user_id: int, limit: int = 20) -> list:
     """Возвращает список заказов для пользователя."""
     async with pool.acquire() as conn:
-        # Основные заказы из logs
         rows = await conn.fetch("""
-            SELECT id, action, details, created_at FROM logs
-            WHERE user_id = $1
-              AND action IN ('buy_stars', 'buy_premium', 'buy_ton')
-              AND (details NOT LIKE 'отмена%%' OR details IS NULL)
-            ORDER BY id DESC
+            SELECT l.id, l.action, l.details,
+                   COALESCE(t.created_at, l.created_at) AS created_at
+            FROM logs l
+            LEFT JOIN ton_orders t
+                ON l.action = 'buy_ton'
+                AND t.user_id = l.user_id
+                AND l.details LIKE CONCAT(t.amount::text, ' TON -> ', LEFT(t.wallet, 10), '%%')
+            WHERE l.user_id = $1
+              AND l.action IN ('buy_stars', 'buy_premium', 'buy_ton')
+              AND (l.details NOT LIKE 'отмена%%' OR l.details IS NULL)
+            ORDER BY l.id DESC
             LIMIT $2
         """, user_id, limit)
-
-        result = []
-        for r in rows:
-            dt = r["created_at"]
-            # Если дата пустая и это TON — берём из ton_orders
-            if dt is None and r["action"] == "buy_ton":
-                try:
-                    ton_row = await conn.fetchrow("""
-                        SELECT created_at FROM ton_orders
-                        WHERE user_id = $1
-                        ORDER BY id DESC LIMIT 1
-                    """, user_id)
-                    if ton_row:
-                        dt = ton_row["created_at"]
-                except Exception:
-                    pass
-            result.append({
+        return [
+            {
                 "id":         r["id"],
                 "action":     r["action"],
                 "details":    r["details"] or "",
-                "created_at": dt,
-            })
-        return result
+                "created_at": r["created_at"],
+            }
+            for r in rows
+        ]
 
 
 async def get_total_premium(user_id: int) -> int:
