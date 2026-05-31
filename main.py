@@ -157,8 +157,9 @@ class TopUpStates(StatesGroup):
 
 
 class TonStates(StatesGroup):
-    enter_amount = State()
-    confirm      = State()
+    enter_amount  = State()
+    enter_wallet  = State()
+    confirm       = State()
 
 
 class StarsStates(StatesGroup):
@@ -1295,27 +1296,74 @@ async def process_ton_amount(message: types.Message, state: FSMContext):
         await asyncio.sleep(3)
         await err.delete()
         return
+
     await state.update_data(ton_amount=amount, ton_price=required)
+
+    # Запрашиваем адрес кошелька
+    e1 = "\u2b50"
+    text = e1 + " Введите адрес Вашего TON кошелька:"
+    entities = [MessageEntity(type="custom_emoji", offset=0,
+                              length=utf16_len(e1), custom_emoji_id="5397586104981403273")]
+    kb = InlineKeyboardMarkup(inline_keyboard=[[back_btn("buy_ton")]])
+    if bot_msg_id:
+        await bot.edit_message_caption(
+            chat_id=message.chat.id, message_id=bot_msg_id,
+            caption=text, reply_markup=kb, caption_entities=entities,
+        )
+    await state.set_state(TonStates.enter_wallet)
+
+
+@dp.message(TonStates.enter_wallet)
+async def process_ton_wallet(message: types.Message, state: FSMContext):
+    await message.delete()
+    data = await state.get_data()
+    bot_msg_id = data.get("bot_msg_id")
+    user_id = message.from_user.id
+    wallet = message.text.strip()
+
+    # Проверяем адрес TON кошелька
+    # Форматы: EQ/UQ (48 символов base64url) или raw (hex)
+    import re
+    valid = bool(re.match(r'^[UE]Q[A-Za-z0-9_\-]{46}$', wallet)) or             bool(re.match(r'^0:[0-9a-fA-F]{64}$', wallet))
+    if not valid:
+        e = "\u2b50"
+        err = await message.answer(
+            e + " Адрес TON кошелька не верный!",
+            entities=[MessageEntity(type="custom_emoji", offset=0,
+                                    length=utf16_len(e),
+                                    custom_emoji_id="5273914604752216432")],
+        )
+        await asyncio.sleep(1)
+        await err.delete()
+        return
+
+    data = await state.get_data()
+    amount = data.get("ton_amount", 0)
+    required = data.get("ton_price", 0)
+    await state.update_data(ton_wallet=wallet)
+
+    # Экран подтверждения
     e1 = "\u2b50"; e2 = "\u2b50"; e3 = "\u2b50"; e4 = "\u2b50"
-    l1 = e1 + " Подтверждение\n\n"
-    l2 = e2 + f" Количество TON: {amount}\n"
-    l3 = e3 + f" Курс: {rate:.2f} RUB/TON\n"
-    l4 = e4 + f" Итого к оплате: {required:.2f} RUB"
+    l1 = e1 + " Подтверждение покупки\n\n"
+    l2 = e2 + f" Количество: {amount} TON\n"
+    l3 = e3 + f" Куда: {wallet}\n"
+    l4 = e4 + f" Сумма: {required:.2f} RUB"
     text = l1 + l2 + l3 + l4
     entities = [
         MessageEntity(type="custom_emoji", offset=0,
-                      length=utf16_len(e1), custom_emoji_id="5240059263048517877"),
+                      length=utf16_len(e1), custom_emoji_id="5260463209562776385"),
         MessageEntity(type="custom_emoji", offset=utf16_len(l1),
-                      length=utf16_len(e2), custom_emoji_id="5312441427764989435"),
+                      length=utf16_len(e2), custom_emoji_id="5370546279375982437"),
         MessageEntity(type="custom_emoji", offset=utf16_len(l1 + l2),
-                      length=utf16_len(e3), custom_emoji_id="5312441427764989435"),
+                      length=utf16_len(e3), custom_emoji_id="5397586104981403273"),
         MessageEntity(type="custom_emoji", offset=utf16_len(l1 + l2 + l3),
-                      length=utf16_len(e4), custom_emoji_id="5312441427764989435"),
+                      length=utf16_len(e4), custom_emoji_id="5289970176052179025"),
     ]
     kb = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="\u2705 Подтвердить", callback_data="ton_confirm",
-                              icon_custom_emoji_id="5368446439800197476")],
-        [back_btn("buy_ton")],
+                              icon_custom_emoji_id="5260463209562776385", style="success")],
+        [InlineKeyboardButton(text="\u274c Отменить", callback_data="buy_ton",
+                              icon_custom_emoji_id="5273914604752216432", style="danger")],
     ])
     if bot_msg_id:
         await bot.edit_message_caption(
@@ -1327,35 +1375,131 @@ async def process_ton_amount(message: types.Message, state: FSMContext):
 
 @dp.callback_query(lambda c: c.data == "ton_confirm")
 async def ton_confirm(callback: types.CallbackQuery, state: FSMContext):
-    await callback.answer("\u23f3 Обрабатываем заказ...", show_alert=False)
+    await callback.answer()
     data = await state.get_data()
     amount = data.get("ton_amount", 0)
-    price = data.get("ton_price", 0)
+    price  = data.get("ton_price", 0)
+    wallet = data.get("ton_wallet", "")
     user_id = callback.from_user.id
     user = callback.from_user
     username = user.username or str(user_id)
+
     await deduct_balance(user_id, float(price))
-    await add_log(user_id, "buy_ton", f"{amount} TON za {price} RUB")
+    await add_log(user_id, "buy_ton", f"{amount} TON -> {wallet} za {price} RUB")
+    await state.clear()
+
+    # Сообщение пользователю
+    e1 = "\u2b50"; e2 = "\u2b50"; e3 = "\u2b50"; e4 = "\u2b50"
+    l1 = e1 + " Заявка на покупку создана\n\n"
+    l2 = e2 + f" {amount} TON будут отправлены на этот кошелек:\n"
+    l3 = wallet + "\n\n"
+    l4 = e3 + " После подтверждения администратором средства поступят получателю."
+    text_user = l1 + l2 + l3 + l4
+    ent_user = [
+        MessageEntity(type="custom_emoji", offset=0,
+                      length=utf16_len(e1), custom_emoji_id="5260463209562776385"),
+        MessageEntity(type="custom_emoji", offset=utf16_len(l1),
+                      length=utf16_len(e2), custom_emoji_id="5370546279375982437"),
+        MessageEntity(type="blockquote", offset=utf16_len(l1 + l2),
+                      length=utf16_len(wallet)),
+        MessageEntity(type="custom_emoji", offset=utf16_len(l1 + l2 + l3),
+                      length=utf16_len(e3), custom_emoji_id="5195033767969839232"),
+    ]
+    await bot.send_message(
+        user_id, text_user, entities=ent_user
+    )
+    await callback.message.edit_caption(
+        caption=text_user,
+        reply_markup=build_main_keyboard(),
+        caption_entities=ent_user
+    )
+
+    # Заявка администратору с кнопками
+    admin_text = (
+        f"\U0001f4e6 Новая заявка TON\n\n"
+        f"\U0001f464 Пользователь: @{username}\n"
+        f"\U0001f194 ID: <code>{user_id}</code>\n"
+        f"\U0001f48e Количество: {amount} TON\n"
+        f"\U0001f4b0 Списано: {price:.2f} RUB\n"
+        f"\U0001f4e9 Кошелёк:\n<code>{wallet}</code>"
+    )
+    admin_kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="\u2705 Выполнил",
+                              callback_data=f"ton_done:{user_id}:{amount}:{wallet}"),
+         InlineKeyboardButton(text="\u274c Отмена",
+                              callback_data=f"ton_cancel:{user_id}:{amount}:{price}")],
+    ])
+    await bot.send_message(ADMIN_ID, admin_text, parse_mode="HTML", reply_markup=admin_kb)
+
+
+@dp.callback_query(lambda c: c.data.startswith("ton_done:"))
+async def ton_admin_done(callback: types.CallbackQuery):
+    await callback.answer()
+    _, uid, amount, wallet = callback.data.split(":", 3)
+    uid = int(uid)
+    balance = await get_balance(uid)
+    e1 = "\u2b50"; e2 = "\u2b50"; e3 = "\u2b50"; e4 = "\u2b50"
+    l1 = e1 + " Покупка TON выполнена\n\n"
+    l2 = e2 + f" {amount} TON отправлены\n"
+    l3 = e3 + f" Адрес: {wallet}\n"
+    l4 = e4 + f" Баланс: {balance:.2f} RUB"
+    text = l1 + l2 + l3 + l4
+    ent = [
+        MessageEntity(type="custom_emoji", offset=0,
+                      length=utf16_len(e1), custom_emoji_id="5260463209562776385"),
+        MessageEntity(type="custom_emoji", offset=utf16_len(l1),
+                      length=utf16_len(e2), custom_emoji_id="5370546279375982437"),
+        MessageEntity(type="custom_emoji", offset=utf16_len(l1 + l2),
+                      length=utf16_len(e3), custom_emoji_id="5397586104981403273"),
+        MessageEntity(type="custom_emoji", offset=utf16_len(l1 + l2 + l3),
+                      length=utf16_len(e4), custom_emoji_id="5289970176052179025"),
+    ]
     try:
-        await bot.send_message(
-            ADMIN_ID,
-            "\U0001f48e Новый заказ TON\n"
-            f"\U0001f464 @{username} (id: <code>{user_id}</code>)\n"
-            f"\U0001f48e {amount} TON\n"
-            f"\U0001f4b0 {price:.2f} RUB списано",
-            parse_mode="HTML",
-        )
+        await bot.send_message(uid, text, entities=ent)
+    except Exception:
+        pass
+    await callback.message.edit_text(
+        callback.message.text + "\n\n\u2705 Выполнено",
+        reply_markup=None, parse_mode="HTML"
+    )
+
+
+@dp.callback_query(lambda c: c.data.startswith("ton_cancel:"))
+async def ton_admin_cancel(callback: types.CallbackQuery, state: FSMContext):
+    await callback.answer()
+    _, uid, amount, price = callback.data.split(":", 3)
+    uid = int(uid)
+    price = float(price)
+    # Сохраняем данные для получения причины
+    await state.update_data(ton_cancel_uid=uid, ton_cancel_amount=amount, ton_cancel_price=price,
+                             ton_cancel_msg_id=callback.message.message_id)
+    await callback.message.reply("\u270f\ufe0f Укажите причину отмены:")
+
+
+@dp.message(lambda m: m.reply_to_message and m.from_user.id == ADMIN_ID and
+            m.reply_to_message.from_user.id == (lambda b: b.id)(callback.bot if hasattr(m, '_bot') else m.bot))
+async def ton_cancel_reason(message: types.Message, state: FSMContext):
+    data = await state.get_data()
+    uid    = data.get("ton_cancel_uid")
+    amount = data.get("ton_cancel_amount")
+    price  = data.get("ton_cancel_price", 0)
+    if not uid:
+        return
+    reason = message.text.strip()
+    # Возвращаем баланс
+    await add_balance(uid, float(price))
+    await add_log(uid, "ton_cancel", f"Отмена {amount} TON, возврат {price} RUB: {reason}")
+    # Уведомляем пользователя
+    e1 = "\u2b50"
+    text = e1 + f" Ваша заявка на покупку {amount} TON отменена.\n\nПричина: {reason}\n\nСредства возвращены на баланс."
+    ent = [MessageEntity(type="custom_emoji", offset=0,
+                         length=utf16_len(e1), custom_emoji_id="5273914604752216432")]
+    try:
+        await bot.send_message(uid, text, entities=ent)
     except Exception:
         pass
     await state.clear()
-    e1 = "\u2b50"
-    text = e1 + " Заявка принята! Менеджер свяжется с вами для отправки TON."
-    entities = [MessageEntity(type="custom_emoji", offset=0,
-                              length=utf16_len(e1),
-                              custom_emoji_id="5240059263048517877")]
-    await callback.message.edit_caption(
-        caption=text, reply_markup=build_main_keyboard(), caption_entities=entities
-    )
+    await message.reply("\u2705 Отмена отправлена, баланс возвращён.")
 
 
 
