@@ -1377,20 +1377,23 @@ async def process_ton_wallet(message: types.Message, state: FSMContext):
 @dp.callback_query(lambda c: c.data == "ton_confirm")
 async def ton_confirm(callback: types.CallbackQuery, state: FSMContext):
     await callback.answer()
-    data = await state.get_data()
-    amount = data.get("ton_amount", 0)
-    price  = data.get("ton_price", 0)
-    wallet = data.get("ton_wallet", "")
+    data    = await state.get_data()
+    amount  = data.get("ton_amount", 0)
+    price   = data.get("ton_price", 0)
+    wallet  = data.get("ton_wallet", "")
     user_id = callback.from_user.id
-    user = callback.from_user
+    user    = callback.from_user
     username = user.username or str(user_id)
 
     await deduct_balance(user_id, float(price))
-    await add_log(user_id, "buy_ton", f"{amount} TON -> {wallet} za {price} RUB")
+
+    # Сохраняем заявку в БД и получаем order_id
+    order_id = await create_ton_order(user_id, amount, wallet, price)
+    await add_log(user_id, "buy_ton", f"#{order_id} {amount} TON -> {wallet} za {price} RUB")
     await state.clear()
 
     # Сообщение пользователю
-    e1 = "\u2b50"; e2 = "\u2b50"; e3 = "\u2b50"; e4 = "\u2b50"
+    e1 = "\u2b50"; e2 = "\u2b50"; e3 = "\u2b50"
     l1 = e1 + " Заявка на покупку создана\n\n"
     l2 = e2 + f" {amount} TON будут отправлены на этот кошелек:\n"
     l3 = wallet + "\n\n"
@@ -1406,30 +1409,26 @@ async def ton_confirm(callback: types.CallbackQuery, state: FSMContext):
         MessageEntity(type="custom_emoji", offset=utf16_len(l1 + l2 + l3),
                       length=utf16_len(e3), custom_emoji_id="5195033767969839232"),
     ]
-    await bot.send_message(
-        user_id, text_user, entities=ent_user
-    )
+    await bot.send_message(user_id, text_user, entities=ent_user)
     await callback.message.edit_caption(
-        caption=text_user,
-        reply_markup=build_main_keyboard(),
-        caption_entities=ent_user
+        caption=text_user, reply_markup=build_main_keyboard(), caption_entities=ent_user
     )
 
-    # Заявка администратору с кнопками
+    # Заявка администратору — только order_id в callback_data
     admin_text = (
-        f"\U0001f4e6 Новая заявка TON\n\n"
-        f"\U0001f464 Пользователь: @{username}\n"
-        f"\U0001f194 ID: <code>{user_id}</code>\n"
-        f"\U0001f48e Количество: {amount} TON\n"
-        f"\U0001f4b0 Списано: {price:.2f} RUB\n"
-        f"\U0001f4e9 Кошелёк:\n<code>{wallet}</code>"
+        f"📦 Заявка TON #<b>{order_id}</b>\n\n"
+        f"👤 @{username}\n"
+        f"🪪 ID: <code>{user_id}</code>\n"
+        f"💎 Количество: <b>{amount} TON</b>\n"
+        f"💰 Списано: <b>{price:.2f} RUB</b>\n"
+        f"📩 Кошелёк:\n<code>{wallet}</code>"
     )
     admin_kb = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="✅ Выполнил",
-                              callback_data=f"ton_done:{user_id}:{amount}:{wallet}",
+                              callback_data=f"ton_done:{order_id}",
                               style="success"),
          InlineKeyboardButton(text="❌ Отмена",
-                              callback_data=f"ton_cancel:{user_id}:{amount}:{price}",
+                              callback_data=f"ton_cancel:{order_id}",
                               style="danger")],
     ])
     await bot.send_message(ADMIN_ID, admin_text, parse_mode="HTML", reply_markup=admin_kb)
@@ -1438,9 +1437,22 @@ async def ton_confirm(callback: types.CallbackQuery, state: FSMContext):
 @dp.callback_query(lambda c: c.data.startswith("ton_done:"))
 async def ton_admin_done(callback: types.CallbackQuery):
     await callback.answer()
-    _, uid, amount, wallet = callback.data.split(":", 3)
-    uid = int(uid)
+    order_id = int(callback.data.split(":")[1])
+    order = await get_ton_order(order_id)
+    if not order:
+        await callback.answer("Заявка не найдена", show_alert=True)
+        return
+    if order["status"] != "pending":
+        await callback.answer("Заявка уже обработана", show_alert=True)
+        return
+
+    uid    = order["user_id"]
+    amount = order["amount"]
+    wallet = order["wallet"]
+
+    await set_ton_order_status(order_id, "done")
     balance = await get_balance(uid)
+
     e1 = "\u2b50"; e2 = "\u2b50"; e3 = "\u2b50"; e4 = "\u2b50"
     l1 = e1 + " Покупка TON выполнена\n\n"
     l2 = e2 + f" {amount} TON отправлены\n"
@@ -1462,7 +1474,7 @@ async def ton_admin_done(callback: types.CallbackQuery):
     except Exception:
         pass
     await callback.message.edit_text(
-        callback.message.text + "\n\n\u2705 Выполнено",
+        callback.message.html_text + "\n\n✅ <b>Выполнено</b>",
         reply_markup=None, parse_mode="HTML"
     )
 
@@ -1470,30 +1482,38 @@ async def ton_admin_done(callback: types.CallbackQuery):
 @dp.callback_query(lambda c: c.data.startswith("ton_cancel:"))
 async def ton_admin_cancel(callback: types.CallbackQuery, state: FSMContext):
     await callback.answer()
-    _, uid, amount, price = callback.data.split(":", 3)
-    uid = int(uid)
-    price = float(price)
-    # Сохраняем данные для получения причины
-    await state.update_data(ton_cancel_uid=uid, ton_cancel_amount=amount, ton_cancel_price=price,
-                             ton_cancel_msg_id=callback.message.message_id)
-    await callback.message.reply("\u270f\ufe0f Укажите причину отмены:")
+    order_id = int(callback.data.split(":")[1])
+    order = await get_ton_order(order_id)
+    if not order:
+        await callback.answer("Заявка не найдена", show_alert=True)
+        return
+    if order["status"] != "pending":
+        await callback.answer("Заявка уже обработана", show_alert=True)
+        return
+    await state.update_data(ton_cancel_order_id=order_id)
+    await callback.message.reply("✏️ Укажите причину отмены:")
 
 
 @dp.message(lambda m: m.reply_to_message is not None and m.from_user.id == ADMIN_ID)
 async def ton_cancel_reason(message: types.Message, state: FSMContext):
-    data = await state.get_data()
-    uid    = data.get("ton_cancel_uid")
-    amount = data.get("ton_cancel_amount")
-    price  = data.get("ton_cancel_price", 0)
-    if not uid:
+    data     = await state.get_data()
+    order_id = data.get("ton_cancel_order_id")
+    if not order_id:
         return
+    order  = await get_ton_order(order_id)
+    if not order or order["status"] != "pending":
+        return
+    uid    = order["user_id"]
+    amount = order["amount"]
+    price  = order["price"]
     reason = message.text.strip()
-    # Возвращаем баланс
+
+    await set_ton_order_status(order_id, "cancelled")
     await add_balance(uid, float(price))
-    await add_log(uid, "ton_cancel", f"Отмена {amount} TON, возврат {price} RUB: {reason}")
-    # Уведомляем пользователя
+    await add_log(uid, "ton_cancel", f"#{order_id} отмена {amount} TON, возврат {price} RUB: {reason}")
+
     e1 = "\u2b50"
-    text = e1 + f" Ваша заявка на покупку {amount} TON отменена.\n\nПричина: {reason}\n\nСредства возвращены на баланс."
+    text = e1 + f" Ваша заявка #{order_id} на покупку {amount} TON отменена.\n\nПричина: {reason}\n\nСредства возвращены на баланс."
     ent = [MessageEntity(type="custom_emoji", offset=0,
                          length=utf16_len(e1), custom_emoji_id="5273914604752216432")]
     try:
@@ -1501,7 +1521,7 @@ async def ton_cancel_reason(message: types.Message, state: FSMContext):
     except Exception:
         pass
     await state.clear()
-    await message.reply("\u2705 Отмена отправлена, баланс возвращён.")
+    await message.reply("✅ Отмена отправлена, баланс возвращён.")
 
 
 
