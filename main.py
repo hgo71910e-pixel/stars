@@ -1385,12 +1385,24 @@ async def ton_confirm(callback: types.CallbackQuery, state: FSMContext):
     user    = callback.from_user
     username = user.username or str(user_id)
 
-    await deduct_balance(user_id, float(price))
+    # Проверяем что state не протух
+    if not wallet or not amount:
+        await callback.answer("Сессия истекла, начните заново", show_alert=True)
+        await state.clear()
+        return
 
-    # Сохраняем заявку в БД и получаем order_id
-    order_id = await create_ton_order(user_id, amount, wallet, price)
-    await add_log(user_id, "buy_ton", f"#{order_id} {amount} TON -> {wallet} za {price} RUB")
-    await state.clear()
+    try:
+        await deduct_balance(user_id, float(price))
+        order_id = await create_ton_order(user_id, float(amount), wallet, float(price))
+        await add_log(user_id, "buy_ton", f"#{order_id} {amount} TON -> {wallet} za {price} RUB")
+        await state.clear()
+    except Exception as e:
+        await bot.send_message(
+            ADMIN_ID,
+            f"Oshibka ton_confirm\nuser: {user_id}\nError: {e}",
+        )
+        await callback.answer("Ошибка при создании заявки, попробуйте позже", show_alert=True)
+        return
 
     # Сообщение пользователю
     e1 = "\u2b50"; e2 = "\u2b50"; e3 = "\u2b50"
@@ -1409,12 +1421,18 @@ async def ton_confirm(callback: types.CallbackQuery, state: FSMContext):
         MessageEntity(type="custom_emoji", offset=utf16_len(l1 + l2 + l3),
                       length=utf16_len(e3), custom_emoji_id="5195033767969839232"),
     ]
-    await bot.send_message(user_id, text_user, entities=ent_user)
-    await callback.message.edit_caption(
-        caption=text_user, reply_markup=build_main_keyboard(), caption_entities=ent_user
-    )
+    try:
+        await bot.send_message(user_id, text_user, entities=ent_user)
+    except Exception:
+        pass
+    try:
+        await callback.message.edit_caption(
+            caption=text_user, reply_markup=build_main_keyboard(), caption_entities=ent_user
+        )
+    except Exception:
+        pass
 
-    # Заявка администратору — только order_id в callback_data
+    # Заявка администратору
     admin_text = (
         f"📦 Заявка TON #<b>{order_id}</b>\n\n"
         f"👤 @{username}\n"
@@ -1431,7 +1449,10 @@ async def ton_confirm(callback: types.CallbackQuery, state: FSMContext):
                               callback_data=f"ton_cancel:{order_id}",
                               style="danger")],
     ])
-    await bot.send_message(ADMIN_ID, admin_text, parse_mode="HTML", reply_markup=admin_kb)
+    try:
+        await bot.send_message(ADMIN_ID, admin_text, parse_mode="HTML", reply_markup=admin_kb)
+    except Exception as e:
+        await bot.send_message(ADMIN_ID, f"❌ Не удалось отправить заявку: {e}")
 
 
 @dp.callback_query(lambda c: c.data.startswith("ton_done:"))
