@@ -1426,10 +1426,9 @@ async def ton_confirm(callback: types.CallbackQuery, state: FSMContext):
         await bot.send_message(user_id, text_user, entities=ent_user)
     except Exception:
         pass
+    # Возвращаем главное меню на основное сообщение
     try:
-        await callback.message.edit_caption(
-            caption=text_user, reply_markup=build_main_keyboard(), caption_entities=ent_user
-        )
+        await show_main(callback, state)
     except Exception:
         pass
 
@@ -1502,7 +1501,7 @@ async def ton_admin_done(callback: types.CallbackQuery):
 
 
 @dp.callback_query(lambda c: c.data.startswith("ton_cancel:"))
-async def ton_admin_cancel(callback: types.CallbackQuery, state: FSMContext):
+async def ton_admin_cancel(callback: types.CallbackQuery):
     await callback.answer()
     order_id = int(callback.data.split(":")[1])
     order = await get_ton_order(order_id)
@@ -1512,18 +1511,20 @@ async def ton_admin_cancel(callback: types.CallbackQuery, state: FSMContext):
     if order["status"] != "pending":
         await callback.answer("Заявка уже обработана", show_alert=True)
         return
-    await state.update_data(ton_cancel_order_id=order_id)
-    await callback.message.reply("✏️ Укажите причину отмены:")
+    # Вставляем order_id прямо в текст чтобы не зависеть от FSM
+    await callback.message.reply(f"CANCEL_ORDER_{order_id}\n✏️ Укажите причину отмены заявки #{order_id}:")
 
 
-@dp.message(lambda m: m.reply_to_message is not None and m.from_user.id == ADMIN_ID)
-async def ton_cancel_reason(message: types.Message, state: FSMContext):
-    data     = await state.get_data()
-    order_id = data.get("ton_cancel_order_id")
-    if not order_id:
-        return
-    order  = await get_ton_order(order_id)
+@dp.message(lambda m: m.reply_to_message is not None
+            and m.from_user.id == ADMIN_ID
+            and m.reply_to_message.text is not None
+            and m.reply_to_message.text.startswith("CANCEL_ORDER_"))
+async def ton_cancel_reason(message: types.Message):
+    first_line = message.reply_to_message.text.split("\n")[0]
+    order_id   = int(first_line.replace("CANCEL_ORDER_", ""))
+    order = await get_ton_order(order_id)
     if not order or order["status"] != "pending":
+        await message.reply("Заявка уже обработана или не найдена.")
         return
     uid    = order["user_id"]
     amount = order["amount"]
@@ -1542,7 +1543,6 @@ async def ton_cancel_reason(message: types.Message, state: FSMContext):
         await bot.send_message(uid, text, entities=ent)
     except Exception:
         pass
-    await state.clear()
     await message.reply("✅ Отмена отправлена, баланс возвращён.")
 
 
