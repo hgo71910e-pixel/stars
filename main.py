@@ -1500,6 +1500,10 @@ async def ton_admin_done(callback: types.CallbackQuery):
     )
 
 
+# Глобальный dict: admin_id -> order_id ожидающий причину отмены
+_pending_cancels: dict[int, int] = {}
+
+
 @dp.callback_query(lambda c: c.data.startswith("ton_cancel:"))
 async def ton_admin_cancel(callback: types.CallbackQuery):
     await callback.answer()
@@ -1511,17 +1515,15 @@ async def ton_admin_cancel(callback: types.CallbackQuery):
     if order["status"] != "pending":
         await callback.answer("Заявка уже обработана", show_alert=True)
         return
-    # Вставляем order_id прямо в текст чтобы не зависеть от FSM
-    await callback.message.reply(f"CANCEL_ORDER_{order_id}\n✏️ Укажите причину отмены заявки #{order_id}:")
+    _pending_cancels[callback.from_user.id] = order_id
+    await callback.message.reply(f"✏️ Укажите причину отмены заявки #{order_id}:")
 
 
-@dp.message(lambda m: m.reply_to_message is not None
-            and m.from_user.id == ADMIN_ID
-            and m.reply_to_message.text is not None
-            and m.reply_to_message.text.startswith("CANCEL_ORDER_"))
+@dp.message(lambda m: m.from_user.id == ADMIN_ID and m.from_user.id in _pending_cancels)
 async def ton_cancel_reason(message: types.Message):
-    first_line = message.reply_to_message.text.split("\n")[0]
-    order_id   = int(first_line.replace("CANCEL_ORDER_", ""))
+    order_id = _pending_cancels.pop(message.from_user.id, None)
+    if not order_id:
+        return
     order = await get_ton_order(order_id)
     if not order or order["status"] != "pending":
         await message.reply("Заявка уже обработана или не найдена.")
@@ -1536,7 +1538,8 @@ async def ton_cancel_reason(message: types.Message):
     await add_log(uid, "ton_cancel", f"#{order_id} отмена {amount} TON, возврат {price} RUB: {reason}")
 
     e1 = "\u2b50"
-    text = e1 + f" Ваша заявка #{order_id} на покупку {amount} TON отменена.\n\nПричина: {reason}\n\nСредства возвращены на баланс."
+    text = (e1 + f" Ваша заявка #{order_id} на покупку {amount} TON отменена."
+            f"\n\nПричина: {reason}\n\nСредства возвращены на баланс.")
     ent = [MessageEntity(type="custom_emoji", offset=0,
                          length=utf16_len(e1), custom_emoji_id="5273914604752216432")]
     try:
