@@ -148,6 +148,7 @@ async def get_total_orders(user_id: int) -> int:
         row = await conn.fetchrow("""
             SELECT COUNT(*) AS cnt FROM logs
              WHERE user_id = $1 AND action IN ('buy_stars', 'buy_premium', 'buy_ton')
+             AND details NOT LIKE 'отмена%'
         """, user_id)
         return int(row["cnt"]) if row else 0
 
@@ -158,6 +159,7 @@ async def get_order_history(user_id: int, limit: int = 20) -> list:
         rows = await conn.fetch("""
             SELECT id, action, details, created_at FROM logs
              WHERE user_id = $1 AND action IN ('buy_stars', 'buy_premium', 'buy_ton')
+             AND details NOT LIKE 'отмена%'
              ORDER BY created_at DESC
              LIMIT $2
         """, user_id, limit)
