@@ -45,7 +45,7 @@ async def init_db():
 
         for sql in [
             "ALTER TABLE logs ADD COLUMN IF NOT EXISTS details TEXT DEFAULT ''",
-            "ALTER TABLE logs ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ",
+            "ALTER TABLE logs ALTER COLUMN created_at SET DEFAULT NOW()",
             "UPDATE logs SET created_at = NOW() WHERE created_at IS NULL",
         ]:
             try:
@@ -122,8 +122,8 @@ async def deduct_balance(user_id: int, amount: float):
 async def add_log(user_id: int, action: str, details: str = ""):
     async with pool.acquire() as conn:
         await conn.execute("""
-            INSERT INTO logs (user_id, action, details)
-            VALUES ($1, $2, $3)
+            INSERT INTO logs (user_id, action, details, created_at)
+            VALUES ($1, $2, $3, NOW())
         """, user_id, action, details)
 
 
