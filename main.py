@@ -891,6 +891,12 @@ async def order_history(callback: types.CallbackQuery):
             label = f"⭐ Stars — {qty} шт. | {date_str}"
         elif action == "buy_premium":
             label = f"💎 Premium — {detail} | {date_str}"
+        elif action == "buy_ton":
+            try:
+                ton_qty = detail.split(" TON")[0].strip()
+            except Exception:
+                ton_qty = "?"
+            label = f"💎 TON — {ton_qty} TON | {date_str}"
         else:
             label = f"📦 {action} | {date_str}"
         buttons.append([InlineKeyboardButton(
@@ -952,6 +958,34 @@ async def order_detail(callback: types.CallbackQuery):
                           length=utf16_len(e1), custom_emoji_id="5258389041006518073"),
             MessageEntity(type="custom_emoji", offset=utf16_len(line1),
                           length=utf16_len(e2), custom_emoji_id="5967412305338568701"),
+        ]
+    elif action == "buy_ton":
+        # формат details: "1.5 TON -> UQBjA6... | 320.50 RUB"
+        try:
+            left, right  = details.split(" -> ")
+            ton_qty      = left.strip()                        # "1.5 TON"
+            rest         = right.split(" | ")
+            wallet_addr  = rest[0].strip()
+            price_str    = rest[1].replace(" RUB", "").strip() if len(rest) > 1 else "?"
+        except Exception:
+            ton_qty     = "?"
+            wallet_addr = details
+            price_str   = "?"
+
+        line1 = f"{e1} Продукт: TON - {ton_qty}\n"
+        line2 = f"{e2} Цена: {price_str} RUB\n"
+        line3 = f"{e3} Дата: {created}\n"
+        line4 = f"{e4} Получатель: {wallet_addr}"
+        text  = line1 + line2 + line3 + line4
+        entities = [
+            MessageEntity(type="custom_emoji", offset=0,
+                          length=utf16_len(e1), custom_emoji_id="5258389041006518073"),
+            MessageEntity(type="custom_emoji", offset=utf16_len(line1),
+                          length=utf16_len(e2), custom_emoji_id="5289970176052179025"),
+            MessageEntity(type="custom_emoji", offset=utf16_len(line1 + line2),
+                          length=utf16_len(e3), custom_emoji_id="5967412305338568701"),
+            MessageEntity(type="custom_emoji", offset=utf16_len(line1 + line2 + line3),
+                          length=utf16_len(e4), custom_emoji_id="5397586104981403273"),
         ]
     else:
         line1 = f"{e1} Действие: {action}\n"
@@ -1395,7 +1429,7 @@ async def ton_confirm(callback: types.CallbackQuery, state: FSMContext):
     try:
         await deduct_balance(user_id, float(price))
         order_id = await create_ton_order(user_id, float(amount), wallet, float(price))
-        await add_log(user_id, "buy_ton", f"#{order_id} {amount} TON -> {wallet} za {price} RUB")
+        await add_log(user_id, "buy_ton", f"{amount} TON -> {wallet} | {price} RUB")
         await state.clear()
     except Exception as e:
         await bot.send_message(
