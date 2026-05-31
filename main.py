@@ -860,13 +860,59 @@ async def my_profile(callback: types.CallbackQuery):
     await callback.answer()
 
 
-@dp.callback_query(lambda c: c.data == "order_history")
+ORDERS_PER_PAGE = 5
+
+
+def build_order_history_kb(orders: list, page: int) -> InlineKeyboardMarkup:
+    total_pages = max(1, (len(orders) + ORDERS_PER_PAGE - 1) // ORDERS_PER_PAGE)
+    start = page * ORDERS_PER_PAGE
+    end   = start + ORDERS_PER_PAGE
+    buttons = []
+    for order in orders[start:end]:
+        action   = order["action"]
+        detail   = order["details"] or ""
+        dt       = order["created_at"]
+        date_str = dt.strftime("%d.%m %H:%M") if hasattr(dt, "strftime") else str(dt)[:16].replace("T", " ")
+        if action == "buy_stars":
+            qty   = detail.split(" stars")[0].strip() if " stars" in detail else "?"
+            label = f"⭐ Stars {qty} | {date_str}"
+        elif action == "buy_premium":
+            months = detail.split(" ")[0] if detail else "?"
+            label  = f"💎 Prem {months}м | {date_str}"
+        elif action == "buy_ton":
+            try:
+                ton_qty = detail.split(" TON")[0].strip()
+                if ton_qty.startswith("#"):
+                    ton_qty = detail.split(" ")[1]
+            except Exception:
+                ton_qty = "?"
+            label = f"📠 TON {ton_qty} | {date_str}"
+        else:
+            label = f"📦 {action[:8]} | {date_str}"
+        buttons.append([InlineKeyboardButton(
+            text=label, callback_data=f"order_detail_{order['id']}"
+        )])
+    nav = []
+    if page > 0:
+        nav.append(InlineKeyboardButton(text="◀", callback_data=f"orders_page_{page-1}"))
+    if total_pages > 1:
+        nav.append(InlineKeyboardButton(
+            text=f"{page+1}/{total_pages}", callback_data="noop"
+        ))
+    if page < total_pages - 1:
+        nav.append(InlineKeyboardButton(text="▶", callback_data=f"orders_page_{page+1}"))
+    if nav:
+        buttons.append(nav)
+    buttons.append([back_btn("my_profile")])
+    return InlineKeyboardMarkup(inline_keyboard=buttons)
+
+
+@dp.callback_query(lambda c: c.data in ("order_history",) or c.data.startswith("orders_page_"))
 async def order_history(callback: types.CallbackQuery):
     user_id = callback.from_user.id
-    orders  = await get_order_history(user_id)
-
+    # Только выполненные заказы (не отменённые TON)
+    orders = await get_order_history(user_id, limit=200)
     e1 = "⭐"
-
     if not orders:
         text     = f"{e1} У вас нету заказов"
         entities = [MessageEntity(type="custom_emoji", offset=0,
@@ -876,39 +922,21 @@ async def order_history(callback: types.CallbackQuery):
                                             caption_entities=entities)
         await callback.answer()
         return
-
-    line1    = f"{e1} История покупок:\n"
-    text     = line1
+    page = 0
+    if callback.data.startswith("orders_page_"):
+        page = int(callback.data.split("_")[-1])
+    total_pages = max(1, (len(orders) + ORDERS_PER_PAGE - 1) // ORDERS_PER_PAGE)
+    line1    = f"{e1} История покупок ({page+1}/{total_pages}):\n"
     entities = [MessageEntity(type="custom_emoji", offset=0,
                               length=utf16_len(e1), custom_emoji_id="5444856076954520455")]
-
-    buttons = []
-    for order in orders:
-        action   = order["action"]
-        detail   = order["details"] or ""
-        date_str = str(order["created_at"])[:16].replace("T", " ")
-        if action == "buy_stars":
-            qty   = detail.split(" stars")[0].strip()
-            label = f"⭐ Stars — {qty} шт. | {date_str}"
-        elif action == "buy_premium":
-            label = f"💎 Premium — {detail} | {date_str}"
-        elif action == "buy_ton":
-            try:
-                ton_qty = detail.split(" TON")[0].strip()
-            except Exception:
-                ton_qty = "?"
-            label = f"💎 TON — {ton_qty} TON | {date_str}"
-        else:
-            label = f"📦 {action} | {date_str}"
-        buttons.append([InlineKeyboardButton(
-            text=label,
-            callback_data=f"order_detail_{order['id']}"
-        )])
-
-    buttons.append([back_btn("my_profile")])
-    kb = InlineKeyboardMarkup(inline_keyboard=buttons)
-    await callback.message.edit_caption(caption=text, reply_markup=kb,
+    kb = build_order_history_kb(orders, page)
+    await callback.message.edit_caption(caption=line1, reply_markup=kb,
                                         caption_entities=entities)
+    await callback.answer()
+
+
+@dp.callback_query(lambda c: c.data == "noop")
+async def noop_handler(callback: types.CallbackQuery):
     await callback.answer()
 
 
