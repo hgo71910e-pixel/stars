@@ -17,6 +17,7 @@ from db.database import (
     get_user_info, get_total_orders, get_total_stars, get_total_premium,
     get_ref_stats, get_order_history,
     create_ton_order, get_ton_order, set_ton_order_status,
+    get_order_by_id,
 )
 from handlers.admin import router as admin_router
 
@@ -913,7 +914,6 @@ async def order_history(callback: types.CallbackQuery):
 
 @dp.callback_query(lambda c: c.data.startswith("order_detail_"))
 async def order_detail(callback: types.CallbackQuery):
-    from db.database import get_order_by_id
     order_id = int(callback.data.split("_")[-1])
     order    = await get_order_by_id(order_id)
 
@@ -960,13 +960,32 @@ async def order_detail(callback: types.CallbackQuery):
                           length=utf16_len(e2), custom_emoji_id="5967412305338568701"),
         ]
     elif action == "buy_ton":
-        # формат details: "1.5 TON -> UQBjA6... | 320.50 RUB"
+        # Поддерживаем оба формата:
+        # новый: "1.5 TON -> UQBjA6... | 320.50 RUB"
+        # старый: "#2 1.0 TON -> UQBjA6... za 320.50 RUB"
         try:
-            left, right  = details.split(" -> ")
-            ton_qty      = left.strip()                        # "1.5 TON"
-            rest         = right.split(" | ")
-            wallet_addr  = rest[0].strip()
-            price_str    = rest[1].replace(" RUB", "").strip() if len(rest) > 1 else "?"
+            if " -> " in details:
+                left  = details.split(" -> ")[0].strip()
+                right = details.split(" -> ")[1]
+                # убираем #N если есть в начале
+                if left.startswith("#"):
+                    left = " ".join(left.split(" ")[1:])
+                ton_qty = left  # "1.0 TON"
+                if " | " in right:
+                    parts2      = right.split(" | ")
+                    wallet_addr = parts2[0].strip()
+                    price_str   = parts2[1].replace(" RUB", "").strip()
+                elif " za " in right:
+                    parts2      = right.split(" za ")
+                    wallet_addr = parts2[0].strip()
+                    price_str   = parts2[1].replace(" RUB", "").strip()
+                else:
+                    wallet_addr = right.strip()
+                    price_str   = "?"
+            else:
+                ton_qty     = "?"
+                wallet_addr = details
+                price_str   = "?"
         except Exception:
             ton_qty     = "?"
             wallet_addr = details
