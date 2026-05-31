@@ -45,8 +45,13 @@ async def init_db():
 
         for sql in [
             "ALTER TABLE logs ADD COLUMN IF NOT EXISTS details TEXT DEFAULT ''",
+            "ALTER TABLE logs ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ",
+            "UPDATE logs SET created_at = NOW() WHERE created_at IS NULL",
         ]:
-            await conn.execute(sql)
+            try:
+                await conn.execute(sql)
+            except Exception:
+                pass
 
         # ── Таблица ton_orders ─────────────────────────────────────────────────
         await conn.execute("""
