@@ -13,7 +13,7 @@ from aiogram.fsm.storage.memory import MemoryStorage
 from dotenv import load_dotenv
 
 from db.database import (
-    init_db, upsert_user, get_balance, deduct_balance, add_log, is_blocked,
+    init_db, upsert_user, get_balance, add_balance, deduct_balance, add_log, is_blocked,
     get_user_info, get_total_orders, get_total_stars, get_total_premium,
     get_ref_stats, get_order_history,
     create_ton_order, get_ton_order, set_ton_order_status,
