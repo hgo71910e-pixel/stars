@@ -48,6 +48,19 @@ async def init_db():
         ]:
             await conn.execute(sql)
 
+        # ── Таблица ton_orders ─────────────────────────────────────────────────
+        await conn.execute("""
+            CREATE TABLE IF NOT EXISTS ton_orders (
+                id         SERIAL PRIMARY KEY,
+                user_id    BIGINT NOT NULL,
+                amount     NUMERIC(12,4) NOT NULL,
+                wallet     TEXT NOT NULL,
+                price      NUMERIC(12,2) NOT NULL,
+                status     TEXT DEFAULT 'pending',
+                created_at TIMESTAMPTZ DEFAULT NOW()
+            )
+        """)
+
 
 # ─── Базовые функции ──────────────────────────────────────────────────────────
 
@@ -306,4 +319,45 @@ async def add_balance(user_id: int, amount: float):
         await conn.execute(
             "UPDATE users SET balance = balance + $2 WHERE user_id = $1",
             user_id, amount
+        )
+
+
+# ─── TON заявки ───────────────────────────────────────────────────────────────
+
+async def create_ton_order(user_id: int, amount: float, wallet: str, price: float) -> int:
+    """Создаёт заявку на покупку TON. Возвращает order_id."""
+    async with pool.acquire() as conn:
+        row = await conn.fetchrow("""
+            INSERT INTO ton_orders (user_id, amount, wallet, price)
+            VALUES ($1, $2, $3, $4)
+            RETURNING id
+        """, user_id, amount, wallet, price)
+        return row["id"]
+
+
+async def get_ton_order(order_id: int) -> dict:
+    """Возвращает заявку по ID."""
+    async with pool.acquire() as conn:
+        row = await conn.fetchrow(
+            "SELECT * FROM ton_orders WHERE id = $1", order_id
+        )
+        if not row:
+            return None
+        return {
+            "id":         row["id"],
+            "user_id":    row["user_id"],
+            "amount":     float(row["amount"]),
+            "wallet":     row["wallet"],
+            "price":      float(row["price"]),
+            "status":     row["status"],
+            "created_at": str(row["created_at"]),
+        }
+
+
+async def set_ton_order_status(order_id: int, status: str):
+    """Обновляет статус заявки: pending / done / cancelled."""
+    async with pool.acquire() as conn:
+        await conn.execute(
+            "UPDATE ton_orders SET status = $2 WHERE id = $1",
+            order_id, status
         )
