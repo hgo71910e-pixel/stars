@@ -886,7 +886,7 @@ def build_order_history_kb(orders: list, page: int) -> InlineKeyboardMarkup:
                     ton_qty = detail.split(" ")[1]
             except Exception:
                 ton_qty = "?"
-            label = f"📠 TON {ton_qty} | {date_str}"
+            label = f"💎 TON {ton_qty} | {date_str}"
         else:
             label = f"📦 {action[:8]} | {date_str}"
         buttons.append([InlineKeyboardButton(
@@ -910,8 +910,11 @@ def build_order_history_kb(orders: list, page: int) -> InlineKeyboardMarkup:
 @dp.callback_query(lambda c: c.data in ("order_history",) or c.data.startswith("orders_page_"))
 async def order_history(callback: types.CallbackQuery):
     user_id = callback.from_user.id
-    # Только выполненные заказы (не отменённые TON)
-    orders = await get_order_history(user_id, limit=200)
+    try:
+        orders = await get_order_history(user_id, limit=200)
+    except Exception as e:
+        await callback.answer(f"Ошибка: {e}", show_alert=True)
+        return
     e1 = "⭐"
     if not orders:
         text     = f"{e1} У вас нету заказов"
