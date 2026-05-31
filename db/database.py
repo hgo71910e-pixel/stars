@@ -163,7 +163,7 @@ async def get_order_history(user_id: int, limit: int = 20) -> list:
     async with pool.acquire() as conn:
         rows = await conn.fetch("""
             SELECT l.id, l.action, l.details,
-                   COALESCE(t.created_at, l.created_at) AS created_at
+                   COALESCE(t.created_at, l.created_at::timestamptz) AS created_at
             FROM logs l
             LEFT JOIN ton_orders t
                 ON l.action = 'buy_ton'
