@@ -1538,15 +1538,15 @@ async def ton_admin_cancel(callback: types.CallbackQuery):
     ]
     try:
         await bot.send_message(uid, text, entities=ent)
-    except Exception:
-        pass
+    except Exception as send_err:
+        await bot.send_message(ADMIN_ID, f"send error: {send_err}")
     try:
         await callback.message.edit_text(
-            callback.message.html_text + "\n\n❌ <b>Отменено</b>",
-            reply_markup=None, parse_mode="HTML"
+            callback.message.text + "\n\n❌ Отменено",
+            reply_markup=None
         )
-    except Exception:
-        pass
+    except Exception as edit_err:
+        await bot.send_message(ADMIN_ID, f"edit error: {edit_err}")
 
 
 
