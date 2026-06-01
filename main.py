@@ -18,7 +18,6 @@ from db.database import (
     get_ref_stats, get_order_history,
     create_ton_order, get_ton_order, set_ton_order_status,
     get_order_by_id, get_total_ton,
-    create_topup_order, get_topup_by_memo, set_topup_status,
 )
 from handlers.admin import router as admin_router
 
@@ -235,9 +234,7 @@ async def split_get_balance() -> float:
 # ─── FSM States ───────────────────────────────────────────────────────────────
 
 class TopUpStates(StatesGroup):
-    waiting_amount    = State()
-    ton_amount        = State()
-    usdt_amount       = State()
+    waiting_amount = State()
 
 
 class TonStates(StatesGroup):
@@ -326,10 +323,10 @@ def build_enter_stars_keyboard(calc_on: bool = False) -> InlineKeyboardMarkup:
 
 def build_confirm_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="Подтвердить", callback_data="stars_confirm",
-                              icon_custom_emoji_id="5368446439800197476", style="success")],
-        [InlineKeyboardButton(text="Отмена", callback_data="stars_cancel",
-                              icon_custom_emoji_id="5273914604752216432", style="danger")]
+        [InlineKeyboardButton(text="✅ Подтвердить", callback_data="stars_confirm",
+                              style="success")],
+        [InlineKeyboardButton(text="❌ Отмена", callback_data="stars_cancel",
+                              style="danger")]
     ])
 
 
@@ -337,8 +334,6 @@ def build_payment_method_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="СБП Рубли | 8%", callback_data="pay_sbp",
                               icon_custom_emoji_id="5368446439800197476")],
-        [InlineKeyboardButton(text="Tonkeeper | 0%", callback_data="pay_tonkeeper",
-                              icon_custom_emoji_id="5397829221605191505")],
         [back_btn("back_to_main")]
     ])
 
@@ -368,10 +363,10 @@ def build_premium_period_keyboard() -> InlineKeyboardMarkup:
 
 def build_premium_confirm_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="Подтвердить", callback_data="premium_confirm",
-                              icon_custom_emoji_id="5368446439800197476", style="success")],
-        [InlineKeyboardButton(text="Отмена", callback_data="buy_premium",
-                              icon_custom_emoji_id="5273914604752216432", style="danger")]
+        [InlineKeyboardButton(text="✅ Подтвердить", callback_data="premium_confirm",
+                              style="success")],
+        [InlineKeyboardButton(text="❌ Отмена", callback_data="buy_premium",
+                              style="danger")]
     ])
 
 
@@ -484,7 +479,7 @@ def stars_confirm_text(recipient: str, stars: int):
     line1 = f"{e1} Подтверждение\n\n"
     line2 = f"{e2} Получатель: {recipient}\n"
     line3 = f"{e3} Количество: {stars}\n"
-    line4 = f"{e4} Итого к оплате: {total_rub} RUB"
+    line4 = f"{e4} Итого к оплате: {total_rub} RUB ({total_usd}$)"
     text  = line1 + line2 + line3 + line4
 
     entities = [
@@ -967,161 +962,6 @@ async def process_amount(message: types.Message, state: FSMContext):
         await bot.edit_message_caption(
             chat_id=message.chat.id, message_id=bot_msg_id,
             caption=text, caption_entities=entities
-        )
-
-
-
-
-# ─── Tonkeeper пополнение ──────────────────────────────────────────────────────
-
-@dp.callback_query(lambda c: c.data == "pay_tonkeeper")
-async def pay_tonkeeper(callback: types.CallbackQuery, state: FSMContext):
-    text = "Выбери способ оплаты:"
-    kb = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="TON", callback_data="topup_ton",
-                              icon_custom_emoji_id="5370546279375982437"),
-         InlineKeyboardButton(text="USDT", callback_data="topup_usdt",
-                              icon_custom_emoji_id="5398080099234886346")],
-        [back_btn("top_up")]
-    ])
-    await callback.message.edit_caption(caption=text, reply_markup=kb)
-    await callback.answer()
-
-
-@dp.callback_query(lambda c: c.data in ("topup_ton", "topup_usdt"))
-async def topup_crypto_menu(callback: types.CallbackQuery, state: FSMContext):
-    is_ton = callback.data == "topup_ton"
-    rate   = get_ton_rate_pure() if is_ton else get_usdt_rate_pure()
-    if rate <= 0:
-        await fetch_pure_rates()
-        rate = get_ton_rate_pure() if is_ton else get_usdt_rate_pure()
-    crypto   = "TON" if is_ton else "USDT"
-    min_usd  = 0.5
-    usd_rate = get_usd_rate()
-    min_rub  = round(min_usd * usd_rate, 0)
-    rate_str = f"{rate:.2f}"
-    e1 = "\u2b50"; e2 = "\u2b50"; e3 = "\u2b50"; e4 = "\u2b50"; e5 = "\u2b50"
-    line1 = f"{e1} Пополнение через {crypto} | Tonkeeper\n\n"
-    line2 = f"{e2} Курс: 1 {crypto} = {rate_str} RUB\n\n"
-    line3 = f"{e3} Комиссия платёжной системы составляет 0%.\n"
-    line4 = f"{e4} Минимальное пополнение: ${min_usd} ({int(min_rub)} RUB)\n\n"
-    line5 = f"{e5} Введите сумму в долларах:"
-    text  = line1 + line2 + line3 + line4 + line5
-    entities = [
-        MessageEntity(type="custom_emoji", offset=0,
-                      length=utf16_len(e1), custom_emoji_id="5397829221605191505"),
-        MessageEntity(type="custom_emoji", offset=utf16_len(line1),
-                      length=utf16_len(e2), custom_emoji_id="5312441427764989435"),
-        MessageEntity(type="custom_emoji", offset=utf16_len(line1 + line2),
-                      length=utf16_len(e3), custom_emoji_id="5870609858520158157"),
-        MessageEntity(type="custom_emoji", offset=utf16_len(line1 + line2 + line3),
-                      length=utf16_len(e4), custom_emoji_id="5870609858520158157"),
-        MessageEntity(type="custom_emoji", offset=utf16_len(line1 + line2 + line3 + line4),
-                      length=utf16_len(e5), custom_emoji_id="5289970176052179025"),
-    ]
-    kb = InlineKeyboardMarkup(inline_keyboard=[[back_btn("pay_tonkeeper")]])
-    await callback.message.edit_caption(caption=text, reply_markup=kb, caption_entities=entities)
-    await state.set_state(TopUpStates.ton_amount if is_ton else TopUpStates.usdt_amount)
-    await state.update_data(bot_msg_id=callback.message.message_id, crypto=crypto)
-    await callback.answer()
-
-
-@dp.message(TopUpStates.ton_amount)
-@dp.message(TopUpStates.usdt_amount)
-async def process_crypto_topup_amount(message: types.Message, state: FSMContext):
-    await message.delete()
-    data       = await state.get_data()
-    bot_msg_id = data.get("bot_msg_id")
-    crypto     = data.get("crypto", "TON")
-    user_id    = message.from_user.id
-
-    try:
-        usd_amount = float(message.text.strip().replace(",", ".").replace("$", ""))
-        if usd_amount < 0.5:
-            raise ValueError
-    except ValueError:
-        usd_rate = get_usd_rate()
-        min_rub  = round(0.5 * usd_rate, 0)
-        e = "\u2b50"
-        err = await message.answer(
-            f"{e} Минимальное пополнение $0.5 ({int(min_rub)} RUB)",
-            entities=[MessageEntity(type="custom_emoji", offset=0, length=utf16_len(e),
-                                    custom_emoji_id="5273914604752216432")]
-        )
-        await asyncio.sleep(2)
-        await err.delete()
-        return
-
-    usd_rate     = get_usd_rate()
-    rub_amount   = round(usd_amount * usd_rate, 2)
-    rate         = get_ton_rate_pure() if crypto == "TON" else get_usdt_rate_pure()
-    if rate <= 0:
-        await fetch_pure_rates()
-        rate = get_ton_rate_pure() if crypto == "TON" else get_usdt_rate_pure()
-    crypto_amount = round(rub_amount / rate, 6) if rate > 0 else 0
-
-    # Генерируем уникальный memo
-    import secrets
-    memo = f"hs_{user_id}_{secrets.token_hex(4)}"
-
-    # Сохраняем pending платёж в БД
-    await create_topup_order(user_id, rub_amount, crypto_amount, crypto, memo)
-
-    # Строим ссылку TonKeeper
-    import urllib.parse
-    nano_amount = int(crypto_amount * 1_000_000_000)
-    if crypto == "TON":
-        pay_url = (
-            f"ton://transfer/{RECEIVE_WALLET}"
-            f"?amount={nano_amount}"
-            f"&text={urllib.parse.quote(memo)}"
-        )
-    else:
-        # USDT на TON — jetton transfer (UQC...USDT contract)
-        USDT_CONTRACT = "EQCxE6mUtQJKFnGfaROTKOt1lZbDiiX1kCixRv7Nw2Id_sDs"
-        usdt_nano = int(crypto_amount * 1_000_000)  # USDT 6 decimals
-        pay_url = (
-            f"ton://transfer/{USDT_CONTRACT}"
-            f"?amount=100000000"
-            f"&bin=te6cckEBAQEAUAAAm0AAxOm7y3bCAiT6r..."  # simplified
-            f"&text={urllib.parse.quote(memo)}"
-        )
-        # Используем прямой transfer с комментарием для простоты
-        pay_url = (
-            f"ton://transfer/{RECEIVE_WALLET}"
-            f"?amount=100000000"
-            f"&text={urllib.parse.quote(memo)}"
-        )
-
-    e1 = "\u2b50"; e2 = "\u2b50"; e3 = "\u2b50"; e4 = "\u2b50"
-    line1 = f"{e1} Платеж через TONkeeper\n\n"
-    line2 = f"{e2} Сумма: {crypto_amount} {crypto} (${usd_amount})\n\n"
-    line3 = f"{e3} Для оплаты:\n1. Нажмите кнопку \"Оплатить через TONkeeper\"\n2. Подтвердите транзакцию в кошельке\n\n"
-    line4 = f"{e4} Важно: Мемо будет автоматически добавлено в транзакцию"
-    text  = line1 + line2 + line3 + line4
-    entities = [
-        MessageEntity(type="custom_emoji", offset=0,
-                      length=utf16_len(e1), custom_emoji_id="5397829221605191505"),
-        MessageEntity(type="custom_emoji", offset=utf16_len(line1),
-                      length=utf16_len(e2), custom_emoji_id="5289970176052179025"),
-        MessageEntity(type="custom_emoji", offset=utf16_len(line1 + line2),
-                      length=utf16_len(e3), custom_emoji_id="5870609858520158157"),
-        MessageEntity(type="custom_emoji", offset=utf16_len(line1 + line2 + line3),
-                      length=utf16_len(e4), custom_emoji_id="5447644880824181073"),
-    ]
-    kb = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(
-            text="Оплатить через Tonkeeper",
-            url=pay_url,
-            icon_custom_emoji_id="5397829221605191505"
-        )],
-        [back_btn("pay_tonkeeper")]
-    ])
-    await state.clear()
-    if bot_msg_id:
-        await bot.edit_message_caption(
-            chat_id=message.chat.id, message_id=bot_msg_id,
-            caption=text, reply_markup=kb, caption_entities=entities
         )
 
 
@@ -2125,43 +1965,7 @@ async def ton_admin_cancel(callback: types.CallbackQuery):
 
 # --- Курс TON/RUB ---
 
-TON_MARKUP_RUB    = 13
-RECEIVE_WALLET    = "UQBjA6mWzGBf-j9vHjcuhRss1VU4ka0jWjd9BfRK93xHOwWz"
-
-# ─── Курс TON и USDT без наценки (для пополнения) ────────────────────────────
-_ton_rate_pure: float  = 0.0   # TON/RUB без наценки
-_usdt_rate_pure: float = 0.0   # USDT/RUB без наценки
-
-
-def get_ton_rate_pure() -> float:
-    return _ton_rate_pure
-
-
-def get_usdt_rate_pure() -> float:
-    return _usdt_rate_pure
-
-
-async def fetch_pure_rates():
-    global _ton_rate_pure, _usdt_rate_pure
-    try:
-        async with aiohttp.ClientSession() as s:
-            r = await s.get(
-                "https://api.coingecko.com/api/v3/simple/price",
-                params={"ids": "the-open-network,tether", "vs_currencies": "rub"},
-                timeout=aiohttp.ClientTimeout(total=10),
-                headers={"User-Agent": "Mozilla/5.0"},
-            )
-            data = await r.json()
-            _ton_rate_pure  = float(data["the-open-network"]["rub"])
-            _usdt_rate_pure = float(data["tether"]["rub"])
-    except Exception:
-        pass
-
-
-async def pure_rates_loop():
-    while True:
-        await fetch_pure_rates()
-        await asyncio.sleep(300)
+TON_MARKUP_RUB = 13
 _ton_rate_cache = 0.0
 
 
@@ -2225,8 +2029,6 @@ async def main():
     asyncio.create_task(ton_rate_updater_loop())
     await update_usd_rate()
     asyncio.create_task(rate_updater_loop())
-    await fetch_pure_rates()
-    asyncio.create_task(pure_rates_loop())
     await bot.set_my_commands([
         types.BotCommand(command="start", description="Меню")
     ])
