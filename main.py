@@ -880,11 +880,11 @@ def build_order_history_kb(orders: list, page: int) -> InlineKeyboardMarkup:
             date_str = str(dt)[:16].replace("T", " ") if dt else "—"
         if action == "buy_stars":
             qty   = detail.split(" stars")[0].strip() if " stars" in detail else "?"
-            label = f"⭐ Stars {qty} | {date_str}"
+            label = f"Stars {qty} | {date_str}"
             icon  = "5346309121794659890"
         elif action == "buy_premium":
             months = detail.split(" ")[0] if detail else "?"
-            label  = f"⭐ Prem {months}м | {date_str}"
+            label  = f"Prem {months}м | {date_str}"
             icon   = "5274026806477857971"
         elif action == "buy_ton":
             try:
@@ -893,30 +893,34 @@ def build_order_history_kb(orders: list, page: int) -> InlineKeyboardMarkup:
                     ton_qty = detail.split(" ")[1]
             except Exception:
                 ton_qty = "?"
-            label = f"⭐ TON {ton_qty} | {date_str}"
+            label = f"TON {ton_qty} | {date_str}"
             icon  = "5370546279375982437"
         else:
-            label = f"📦 {action[:8]} | {date_str}"
+            label = f"{action[:8]} | {date_str}"
             icon  = None
         btn = InlineKeyboardButton(
-            text=label, callback_data=f"order_detail_{order['id']}"
+            text=label,
+            callback_data=f"order_detail_{order['id']}",
+            **(({"icon_custom_emoji_id": icon}) if icon else {})
         )
-        if icon:
-            btn = InlineKeyboardButton(
-                text=label,
-                callback_data=f"order_detail_{order['id']}",
-                icon_custom_emoji_id=icon
-            )
         buttons.append([btn])
     nav = []
     if page > 0:
-        nav.append(InlineKeyboardButton(text="◀", callback_data=f"orders_page_{page-1}"))
-    if total_pages > 1:
+        nav.append(InlineKeyboardButton(
+            text=f"{page+1}/{total_pages} ◀",
+            callback_data=f"orders_page_{page-1}",
+            icon_custom_emoji_id="5210697599597688299"
+        ))
+    if total_pages > 1 and page == 0:
         nav.append(InlineKeyboardButton(
             text=f"{page+1}/{total_pages}", callback_data="noop"
         ))
     if page < total_pages - 1:
-        nav.append(InlineKeyboardButton(text="▶", callback_data=f"orders_page_{page+1}"))
+        nav.append(InlineKeyboardButton(
+            text=f"{page+1}/{total_pages} ▶",
+            callback_data=f"orders_page_{page+1}",
+            icon_custom_emoji_id="5210862534931791739"
+        ))
     if nav:
         buttons.append(nav)
     buttons.append([back_btn("my_profile")])
