@@ -74,6 +74,23 @@ async def split_check_recipient(username: str) -> dict | None:
     return None
 
 
+async def split_check_premium_recipient(username: str) -> dict | None:
+    """Проверяет получателя Premium по username через Split API."""
+    try:
+        async with aiohttp.ClientSession() as s:
+            r = await s.post(
+                f"{SPLIT_BASE}/recipients/premium",
+                headers=split_headers(),
+                json={"username": username}
+            )
+            data = await r.json()
+            if data.get("ok"):
+                return data.get("message")
+    except Exception:
+        pass
+    return None
+
+
 async def split_buy_stars(username: str, quantity: int, user_id: int) -> bool:
     """
     Покупает звёзды через Split.tg (payment_method: balance).
@@ -165,9 +182,12 @@ class TonStates(StatesGroup):
 
 
 class StarsStates(StatesGroup):
-    calculator       = State()
-    enter_stars_self = State()
-    confirm_self     = State()
+    calculator         = State()
+    enter_stars_self   = State()
+    confirm_self       = State()
+    enter_friend_user  = State()
+    enter_stars_friend = State()
+    confirm_friend     = State()
 
 
 class ReviewStates(StatesGroup):
@@ -175,7 +195,9 @@ class ReviewStates(StatesGroup):
 
 
 class PremiumStates(StatesGroup):
-    confirm_self = State()
+    confirm_self        = State()
+    enter_friend_user   = State()
+    confirm_friend      = State()
 
 
 def utf16_len(s: str) -> int:
@@ -539,8 +561,96 @@ async def stars_self(callback: types.CallbackQuery, state: FSMContext):
 
 
 @dp.callback_query(lambda c: c.data == "stars_friend")
-async def stars_friend(callback: types.CallbackQuery):
-    await callback.answer("Скоро будет доступно!", show_alert=False)
+async def stars_friend(callback: types.CallbackQuery, state: FSMContext):
+    e1 = "\u2b50"
+    text = f"{e1} \u0412\u0432\u0435\u0434\u0438\u0442\u0435 @username \u043f\u043e\u043b\u044c\u0437\u043e\u0432\u0430\u0442\u0435\u043b\u044f, \u043a\u043e\u0442\u043e\u0440\u043e\u043c\u0443 \u0445\u043e\u0442\u0438\u0442\u0435 \u043a\u0443\u043f\u0438\u0442\u044c \u0437\u0432\u0435\u0437\u0434\u044b:"
+    entities = [MessageEntity(type="custom_emoji", offset=0, length=utf16_len(e1),
+                              custom_emoji_id="5771887475421090729")]
+    kb = InlineKeyboardMarkup(inline_keyboard=[[back_btn("stars_who")]])
+    await callback.message.edit_caption(caption=text, reply_markup=kb, caption_entities=entities)
+    await state.set_state(StarsStates.enter_friend_user)
+    await state.update_data(bot_msg_id=callback.message.message_id)
+    await callback.answer()
+
+
+@dp.message(StarsStates.enter_friend_user)
+async def process_friend_username(message: types.Message, state: FSMContext):
+    await message.delete()
+    data       = await state.get_data()
+    bot_msg_id = data.get("bot_msg_id")
+    user_id    = message.from_user.id
+    raw        = message.text.strip().lstrip("@")
+    if not raw:
+        return
+    recipient  = f"@{raw}"
+    recip_data = await split_check_recipient(raw)
+    if recip_data is None:
+        e = "\u2b50"
+        err = await message.answer(
+            f"{e} \u041f\u043e\u043b\u044c\u0437\u043e\u0432\u0430\u0442\u0435\u043b\u044c @{raw} \u043d\u0435 \u043d\u0430\u0439\u0434\u0435\u043d. \u041f\u0440\u043e\u0432\u0435\u0440\u044c\u0442\u0435 username \u0438 \u043f\u043e\u043f\u0440\u043e\u0431\u0443\u0439\u0442\u0435 \u0441\u043d\u043e\u0432\u0430.",
+            entities=[MessageEntity(type="custom_emoji", offset=0, length=utf16_len(e),
+                                    custom_emoji_id="5273914604752216432")]
+        )
+        await asyncio.sleep(1)
+        await err.delete()
+        return
+    text, entities = await stars_enter_text(user_id, recipient)
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="\u041a\u0430\u043b\u044c\u043a\u0443\u043b\u044f\u0442\u043e\u0440",
+                              callback_data="stars_calc_on")],
+        [back_btn("stars_friend")]
+    ])
+    if bot_msg_id:
+        await bot.edit_message_caption(
+            chat_id=message.chat.id, message_id=bot_msg_id,
+            caption=text, reply_markup=kb, caption_entities=entities
+        )
+    await state.set_state(StarsStates.enter_stars_friend)
+    await state.update_data(bot_msg_id=bot_msg_id, recipient=recipient)
+
+
+@dp.message(StarsStates.enter_stars_friend)
+async def process_stars_friend(message: types.Message, state: FSMContext):
+    await message.delete()
+    data       = await state.get_data()
+    bot_msg_id = data.get("bot_msg_id")
+    recipient  = data.get("recipient", "")
+    user_id    = message.from_user.id
+    try:
+        stars = int(message.text.strip())
+        if stars < STARS_MIN:
+            raise ValueError
+    except ValueError:
+        e = "\u2b50"
+        err = await message.answer(
+            f"{e} \u041c\u0438\u043d\u0438\u043c\u0443\u043c {STARS_MIN} \u0437\u0432\u0451\u0437\u0434",
+            entities=[MessageEntity(type="custom_emoji", offset=0, length=utf16_len(e),
+                                    custom_emoji_id="5273914604752216432")]
+        )
+        await asyncio.sleep(2)
+        await err.delete()
+        return
+    balance  = await get_balance(user_id)
+    required = round(stars * STARS_RATE, 2)
+    if balance < required:
+        text, entities = await stars_no_funds_text(user_id, stars)
+        if bot_msg_id:
+            await bot.edit_message_caption(
+                chat_id=message.chat.id, message_id=bot_msg_id,
+                caption=text,
+                reply_markup=InlineKeyboardMarkup(inline_keyboard=[[back_btn("stars_who")]]),
+                caption_entities=entities
+            )
+    else:
+        await state.update_data(stars=stars)
+        text, entities = stars_confirm_text(recipient, stars)
+        if bot_msg_id:
+            await bot.edit_message_caption(
+                chat_id=message.chat.id, message_id=bot_msg_id,
+                caption=text, reply_markup=build_confirm_keyboard(),
+                caption_entities=entities
+            )
+        await state.set_state(StarsStates.confirm_friend)
 
 
 @dp.callback_query(lambda c: c.data == "stars_calc_on")
@@ -1211,8 +1321,60 @@ async def premium_self(callback: types.CallbackQuery, state: FSMContext):
 
 
 @dp.callback_query(lambda c: c.data == "premium_friend")
-async def premium_friend(callback: types.CallbackQuery):
-    await callback.answer("Скоро будет доступно!", show_alert=False)
+async def premium_friend(callback: types.CallbackQuery, state: FSMContext):
+    e1 = "\u2b50"
+    text = f"{e1} \u0412\u0432\u0435\u0434\u0438\u0442\u0435 @username \u043f\u043e\u043b\u044c\u0437\u043e\u0432\u0430\u0442\u0435\u043b\u044f, \u043a\u043e\u0442\u043e\u0440\u043e\u043c\u0443 \u0445\u043e\u0442\u0438\u0442\u0435 \u043a\u0443\u043f\u0438\u0442\u044c Premium:"
+    entities = [MessageEntity(type="custom_emoji", offset=0, length=utf16_len(e1),
+                              custom_emoji_id="5771887475421090729")]
+    kb = InlineKeyboardMarkup(inline_keyboard=[[back_btn("buy_premium")]])
+    await callback.message.edit_caption(caption=text, reply_markup=kb, caption_entities=entities)
+    await state.set_state(PremiumStates.enter_friend_user)
+    await state.update_data(bot_msg_id=callback.message.message_id)
+    await callback.answer()
+
+
+@dp.message(PremiumStates.enter_friend_user)
+async def process_premium_friend_username(message: types.Message, state: FSMContext):
+    await message.delete()
+    data       = await state.get_data()
+    bot_msg_id = data.get("bot_msg_id")
+    raw        = message.text.strip().lstrip("@")
+    if not raw:
+        return
+    recipient  = f"@{raw}"
+    recip_data = await split_check_premium_recipient(raw)
+    if recip_data is None:
+        e = "\u2b50"
+        err = await message.answer(
+            f"{e} \u041f\u043e\u043b\u044c\u0437\u043e\u0432\u0430\u0442\u0435\u043b\u044c @{raw} \u043d\u0435 \u043d\u0430\u0439\u0434\u0435\u043d. \u041f\u0440\u043e\u0432\u0435\u0440\u044c\u0442\u0435 username \u0438 \u043f\u043e\u043f\u0440\u043e\u0431\u0443\u0439\u0442\u0435 \u0441\u043d\u043e\u0432\u0430.",
+            entities=[MessageEntity(type="custom_emoji", offset=0, length=utf16_len(e),
+                                    custom_emoji_id="5273914604752216432")]
+        )
+        await asyncio.sleep(1)
+        await err.delete()
+        return
+    if recip_data.get("is_premium", False):
+        e = "\u2b50"
+        err = await message.answer(
+            f"{e} \u041e\u0448\u0438\u0431\u043a\u0430! \u0423 \u043f\u043e\u043b\u044c\u0437\u043e\u0432\u0430\u0442\u0435\u043b\u044f @{raw} \u0443\u0436\u0435 \u0435\u0441\u0442\u044c Telegram Premium!",
+            entities=[MessageEntity(type="custom_emoji", offset=0, length=utf16_len(e),
+                                    custom_emoji_id="5273914604752216432")]
+        )
+        await asyncio.sleep(1)
+        await err.delete()
+        return
+    await state.update_data(recipient=recipient)
+    e1 = "\u2b50"
+    line1 = f"{e1} \u0412\u044b\u0431\u0435\u0440\u0438\u0442\u0435 \u043f\u0435\u0440\u0438\u043e\u0434 \u043f\u043e\u0434\u043f\u0438\u0441\u043a\u0438 \u0434\u043b\u044f @{raw}:"
+    entities = [MessageEntity(type="custom_emoji", offset=0, length=utf16_len(e1),
+                              custom_emoji_id="5274026806477857971")]
+    if bot_msg_id:
+        await bot.edit_message_caption(
+            chat_id=message.chat.id, message_id=bot_msg_id,
+            caption=line1, reply_markup=build_premium_period_keyboard(),
+            caption_entities=entities
+        )
+    await state.set_state(PremiumStates.confirm_friend)
 
 
 @dp.callback_query(lambda c: c.data.startswith("premium_period_"))
