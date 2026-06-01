@@ -881,9 +881,11 @@ def build_order_history_kb(orders: list, page: int) -> InlineKeyboardMarkup:
         if action == "buy_stars":
             qty   = detail.split(" stars")[0].strip() if " stars" in detail else "?"
             label = f"⭐ Stars {qty} | {date_str}"
+            icon  = "5346309121794659890"
         elif action == "buy_premium":
             months = detail.split(" ")[0] if detail else "?"
-            label  = f"💎 Prem {months}м | {date_str}"
+            label  = f"⭐ Prem {months}м | {date_str}"
+            icon   = "5274026806477857971"
         elif action == "buy_ton":
             try:
                 ton_qty = detail.split(" TON")[0].strip()
@@ -891,12 +893,21 @@ def build_order_history_kb(orders: list, page: int) -> InlineKeyboardMarkup:
                     ton_qty = detail.split(" ")[1]
             except Exception:
                 ton_qty = "?"
-            label = f"💎 TON {ton_qty} | {date_str}"
+            label = f"⭐ TON {ton_qty} | {date_str}"
+            icon  = "5370546279375982437"
         else:
             label = f"📦 {action[:8]} | {date_str}"
-        buttons.append([InlineKeyboardButton(
+            icon  = None
+        btn = InlineKeyboardButton(
             text=label, callback_data=f"order_detail_{order['id']}"
-        )])
+        )
+        if icon:
+            btn = InlineKeyboardButton(
+                text=label,
+                callback_data=f"order_detail_{order['id']}",
+                icon_custom_emoji_id=icon
+            )
+        buttons.append([btn])
     nav = []
     if page > 0:
         nav.append(InlineKeyboardButton(text="◀", callback_data=f"orders_page_{page-1}"))
