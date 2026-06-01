@@ -53,6 +53,20 @@ async def init_db():
             except Exception:
                 pass
 
+        # ── Таблица topup_orders (Tonkeeper пополнения) ──────────────────────────
+        await conn.execute("""
+            CREATE TABLE IF NOT EXISTS topup_orders (
+                id          SERIAL PRIMARY KEY,
+                user_id     BIGINT NOT NULL,
+                rub_amount  NUMERIC(12,2) NOT NULL,
+                crypto_amt  NUMERIC(18,6) NOT NULL,
+                crypto      TEXT NOT NULL,
+                memo        TEXT UNIQUE NOT NULL,
+                status      TEXT DEFAULT 'pending',
+                created_at  TIMESTAMPTZ DEFAULT NOW()
+            )
+        """)
+
         # ── Таблица ton_orders ─────────────────────────────────────────────────
         await conn.execute("""
             CREATE TABLE IF NOT EXISTS ton_orders (
@@ -411,3 +425,34 @@ async def get_order_by_id(order_id: int) -> dict:
             "details":    row["details"] or "",
             "created_at": row["created_at"],
         }
+
+
+# ─── Tonkeeper пополнения ─────────────────────────────────────────────────────
+
+async def create_topup_order(user_id: int, rub_amount: float,
+                              crypto_amt: float, crypto: str, memo: str) -> int:
+    async with pool.acquire() as conn:
+        row = await conn.fetchrow("""
+            INSERT INTO topup_orders (user_id, rub_amount, crypto_amt, crypto, memo)
+            VALUES ($1, $2, $3, $4, $5)
+            RETURNING id
+        """, user_id, rub_amount, crypto_amt, crypto, memo)
+        return row["id"]
+
+
+async def get_topup_by_memo(memo: str) -> dict:
+    async with pool.acquire() as conn:
+        row = await conn.fetchrow(
+            "SELECT * FROM topup_orders WHERE memo = $1", memo
+        )
+        if not row:
+            return None
+        return dict(row)
+
+
+async def set_topup_status(order_id: int, status: str) -> None:
+    async with pool.acquire() as conn:
+        await conn.execute(
+            "UPDATE topup_orders SET status = $2 WHERE id = $1",
+            order_id, status
+        )
