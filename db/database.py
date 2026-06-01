@@ -186,6 +186,24 @@ async def get_order_history(user_id: int, limit: int = 20) -> list:
         ]
 
 
+async def get_total_ton(user_id: int) -> float:
+    """Суммарное количество TON купленных пользователем."""
+    async with pool.acquire() as conn:
+        rows = await conn.fetch(
+            "SELECT details FROM logs WHERE user_id = $1 AND action = 'buy_ton'",
+            user_id
+        )
+        total = 0.0
+        for r in rows:
+            try:
+                d = r["details"] or ""
+                qty = float(d.split(" TON")[0].strip().split()[-1])
+                total += qty
+            except Exception:
+                pass
+        return total
+
+
 async def get_total_premium(user_id: int) -> int:
     async with pool.acquire() as conn:
         row = await conn.fetchrow("""
