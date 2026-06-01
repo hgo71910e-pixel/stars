@@ -872,7 +872,12 @@ def build_order_history_kb(orders: list, page: int) -> InlineKeyboardMarkup:
         action   = order["action"]
         detail   = order["details"] or ""
         dt       = order["created_at"]
-        date_str = dt.strftime("%d.%m %H:%M") if hasattr(dt, "strftime") else str(dt)[:16].replace("T", " ")
+        if hasattr(dt, "strftime"):
+            import datetime as _dt2
+            dt_msk   = dt + _dt2.timedelta(hours=3)
+            date_str = dt_msk.strftime("%d.%m %H:%M")
+        else:
+            date_str = str(dt)[:16].replace("T", " ") if dt else "—"
         if action == "buy_stars":
             qty   = detail.split(" stars")[0].strip() if " stars" in detail else "?"
             label = f"⭐ Stars {qty} | {date_str}"
@@ -955,10 +960,13 @@ async def order_detail(callback: types.CallbackQuery):
     action  = order["action"]
     details = order["details"] or ""
     raw_dt  = order["created_at"]
+    import datetime as _dt
     if raw_dt is None:
         created = "—"
     elif hasattr(raw_dt, "strftime"):
-        created = raw_dt.strftime("%d.%m.%Y %H:%M")
+        # UTC+3 (МСК)
+        msk = raw_dt + _dt.timedelta(hours=3) if raw_dt.tzinfo is not None else raw_dt + _dt.timedelta(hours=3)
+        created = msk.strftime("%d.%m.%Y %H:%M")
     else:
         created = str(raw_dt)[:16].replace("T", " ")
 
@@ -971,14 +979,13 @@ async def order_detail(callback: types.CallbackQuery):
         price     = round(int(qty) * STARS_RATE, 2) if qty.isdigit() else "?"
 
         line1 = f"{e1} Продукт: Telegram Stars - {qty} Stars\n"
-        line2 = f"{e2} Цена: {price}₽\n"
+        line2 = f"{e2} Цена: {price} RUB\n"
         line3 = f"{e3} Дата: {created}\n"
-        line4 = f"{e4} Получатель: ({recipient})"
+        line4 = f"{e4} Получатель: {recipient}"
         text  = line1 + line2 + line3 + line4
-
         entities = [
             MessageEntity(type="custom_emoji", offset=0,
-                          length=utf16_len(e1), custom_emoji_id="5258389041006518073"),
+                          length=utf16_len(e1), custom_emoji_id="5346309121794659890"),
             MessageEntity(type="custom_emoji", offset=utf16_len(line1),
                           length=utf16_len(e2), custom_emoji_id="5289970176052179025"),
             MessageEntity(type="custom_emoji", offset=utf16_len(line1 + line2),
@@ -987,27 +994,40 @@ async def order_detail(callback: types.CallbackQuery):
                           length=utf16_len(e4), custom_emoji_id="5870994129244131212"),
         ]
     elif action == "buy_premium":
-        line1 = f"{e1} Продукт: Telegram Premium - {details}\n"
-        line2 = f"{e2} Дата: {created}"
-        text  = line1 + line2
+        # details формат: "3 мес." или "6 мес." итд
+        months_map = {"3": "3 Month", "6": "6 Month", "12": "12 Month", "24": "24 Month"}
+        months_key = details.split(" ")[0].strip()
+        months_str = months_map.get(months_key, details)
+        # recipient из state не сохранён — берём из details если есть @
+        recipient = "—"
+        for part in details.split():
+            if part.startswith("@"):
+                recipient = part
+                break
+
+        line1 = f"{e1} Продукт: Telegram Premium - {months_str}\n"
+        line2 = f"{e2} Цена: — RUB\n"
+        line3 = f"{e3} Дата: {created}\n"
+        line4 = f"{e4} Получатель: {recipient}"
+        text  = line1 + line2 + line3 + line4
         entities = [
             MessageEntity(type="custom_emoji", offset=0,
-                          length=utf16_len(e1), custom_emoji_id="5258389041006518073"),
+                          length=utf16_len(e1), custom_emoji_id="5274026806477857971"),
             MessageEntity(type="custom_emoji", offset=utf16_len(line1),
-                          length=utf16_len(e2), custom_emoji_id="5967412305338568701"),
+                          length=utf16_len(e2), custom_emoji_id="5289970176052179025"),
+            MessageEntity(type="custom_emoji", offset=utf16_len(line1 + line2),
+                          length=utf16_len(e3), custom_emoji_id="5967412305338568701"),
+            MessageEntity(type="custom_emoji", offset=utf16_len(line1 + line2 + line3),
+                          length=utf16_len(e4), custom_emoji_id="5870994129244131212"),
         ]
     elif action == "buy_ton":
-        # Поддерживаем оба формата:
-        # новый: "1.5 TON -> UQBjA6... | 320.50 RUB"
-        # старый: "#2 1.0 TON -> UQBjA6... za 320.50 RUB"
         try:
             if " -> " in details:
                 left  = details.split(" -> ")[0].strip()
                 right = details.split(" -> ")[1]
-                # убираем #N если есть в начале
                 if left.startswith("#"):
                     left = " ".join(left.split(" ")[1:])
-                ton_qty = left  # "1.0 TON"
+                ton_qty = left
                 if " | " in right:
                     parts2      = right.split(" | ")
                     wallet_addr = parts2[0].strip()
@@ -1035,13 +1055,13 @@ async def order_detail(callback: types.CallbackQuery):
         text  = line1 + line2 + line3 + line4
         entities = [
             MessageEntity(type="custom_emoji", offset=0,
-                          length=utf16_len(e1), custom_emoji_id="5258389041006518073"),
+                          length=utf16_len(e1), custom_emoji_id="5370546279375982437"),
             MessageEntity(type="custom_emoji", offset=utf16_len(line1),
                           length=utf16_len(e2), custom_emoji_id="5289970176052179025"),
             MessageEntity(type="custom_emoji", offset=utf16_len(line1 + line2),
                           length=utf16_len(e3), custom_emoji_id="5967412305338568701"),
             MessageEntity(type="custom_emoji", offset=utf16_len(line1 + line2 + line3),
-                          length=utf16_len(e4), custom_emoji_id="5397586104981403273"),
+                          length=utf16_len(e4), custom_emoji_id="5870994129244131212"),
         ]
     else:
         line1 = f"{e1} Действие: {action}\n"
