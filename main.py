@@ -907,7 +907,7 @@ def build_order_history_kb(orders: list, page: int) -> InlineKeyboardMarkup:
     nav = []
     if page > 0:
         nav.append(InlineKeyboardButton(
-            text="◀",
+            text=" ",
             callback_data=f"orders_page_{page-1}",
             icon_custom_emoji_id="5210697599597688299"
         ))
@@ -917,7 +917,7 @@ def build_order_history_kb(orders: list, page: int) -> InlineKeyboardMarkup:
         ))
     if page < total_pages - 1:
         nav.append(InlineKeyboardButton(
-            text="▶",
+            text=" ",
             callback_data=f"orders_page_{page+1}",
             icon_custom_emoji_id="5210862534931791739"
         ))
