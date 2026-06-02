@@ -287,13 +287,13 @@ def back_btn(callback_data: str) -> InlineKeyboardButton:
 def build_main_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="Пополнить баланс", callback_data="top_up",
-                              icon_custom_emoji_id="5289970176052179025", style="primary")],
+                              icon_custom_emoji_id="5328309412073335328", style="primary")],
         [InlineKeyboardButton(text="Звёзды", callback_data="buy_stars",
                               icon_custom_emoji_id="5346309121794659890", style="success"),
          InlineKeyboardButton(text="Премиум", callback_data="buy_premium",
                               icon_custom_emoji_id="5274026806477857971", style="success")],
         [InlineKeyboardButton(text="TON", callback_data="buy_ton",
-                              icon_custom_emoji_id="5240059263048517877", style="primary")],
+                              icon_custom_emoji_id="5370546279375982437", style="primary")],
         [InlineKeyboardButton(text="Мой профиль", callback_data="my_profile",
                               icon_custom_emoji_id="5870994129244131212"),
          InlineKeyboardButton(text="Рефка", callback_data="referral",
@@ -389,15 +389,15 @@ async def start_text(username: str, user_id: int):
 
     entities = [
         MessageEntity(type="custom_emoji", offset=0, length=utf16_len(e1),
-                      custom_emoji_id="5269579312008299587"),
+                      custom_emoji_id="5195033767969839232"),
         MessageEntity(type="blockquote", offset=utf16_len(greeting),
                       length=utf16_len(line2.rstrip('\n'))),
         MessageEntity(type="custom_emoji", offset=utf16_len(greeting),
-                      length=utf16_len(e2), custom_emoji_id="5346284060660494696"),
+                      length=utf16_len(e2), custom_emoji_id="5278702045883292456"),
         MessageEntity(type="blockquote", offset=utf16_len(greeting + line2),
                       length=utf16_len(line3.rstrip('\n'))),
         MessageEntity(type="custom_emoji", offset=utf16_len(greeting + line2),
-                      length=utf16_len(e3), custom_emoji_id="5289970176052179025"),
+                      length=utf16_len(e3), custom_emoji_id="5328309412073335328"),
         MessageEntity(type="custom_emoji",
                       offset=utf16_len(greeting + line2 + line3 + "Выбери действие ниже "),
                       length=utf16_len(e4), custom_emoji_id="5193202823411546657"),
@@ -467,9 +467,9 @@ async def stars_no_funds_text(user_id: int, stars: int):
         MessageEntity(type="custom_emoji", offset=0, length=utf16_len(e1),
                       custom_emoji_id="5447644880824181073"),
         MessageEntity(type="custom_emoji", offset=utf16_len(line1),
-                      length=utf16_len(e2), custom_emoji_id="5289970176052179025"),
+                      length=utf16_len(e2), custom_emoji_id="5328309412073335328"),
         MessageEntity(type="custom_emoji", offset=utf16_len(line1 + line2),
-                      length=utf16_len(e3), custom_emoji_id="5289970176052179025"),
+                      length=utf16_len(e3), custom_emoji_id="5328309412073335328"),
         MessageEntity(type="custom_emoji", offset=utf16_len(line1 + line2 + line3),
                       length=utf16_len(e4), custom_emoji_id="5870609858520158157"),
     ]
@@ -917,7 +917,7 @@ async def pay_sbp(callback: types.CallbackQuery, state: FSMContext):
         MessageEntity(type="custom_emoji", offset=utf16_len(line1 + line2),
                       length=utf16_len(ei), custom_emoji_id="5870609858520158157"),
         MessageEntity(type="custom_emoji", offset=utf16_len(line1 + line2 + line3),
-                      length=utf16_len(ei), custom_emoji_id="5289970176052179025"),
+                      length=utf16_len(ei), custom_emoji_id="5328309412073335328"),
     ]
     await callback.message.edit_caption(
         caption=text,
@@ -959,9 +959,9 @@ async def process_amount(message: types.Message, state: FSMContext):
         MessageEntity(type="custom_emoji", offset=0, length=utf16_len(e1),
                       custom_emoji_id="5260463209562776385"),
         MessageEntity(type="custom_emoji", offset=utf16_len(line1),
-                      length=utf16_len(e2), custom_emoji_id="5289970176052179025"),
+                      length=utf16_len(e2), custom_emoji_id="5328309412073335328"),
         MessageEntity(type="custom_emoji", offset=utf16_len(line1 + line2),
-                      length=utf16_len(e3), custom_emoji_id="5289970176052179025"),
+                      length=utf16_len(e3), custom_emoji_id="5328309412073335328"),
         MessageEntity(type="custom_emoji", offset=utf16_len(line1 + line2 + line3),
                       length=utf16_len(e4), custom_emoji_id="5193202823411546757"),
     ]
@@ -1009,13 +1009,13 @@ async def topup_crypto_menu(callback: types.CallbackQuery, state: FSMContext):
         MessageEntity(type="custom_emoji", offset=0,
                       length=utf16_len(e1), custom_emoji_id="5397829221605191505"),
         MessageEntity(type="custom_emoji", offset=utf16_len(line1),
-                      length=utf16_len(e2), custom_emoji_id="5312441427764989435"),
+                      length=utf16_len(e2), custom_emoji_id="5346174496044773695"),
         MessageEntity(type="custom_emoji", offset=utf16_len(line1 + line2),
                       length=utf16_len(e3), custom_emoji_id="5870609858520158157"),
         MessageEntity(type="custom_emoji", offset=utf16_len(line1 + line2 + line3),
                       length=utf16_len(e4), custom_emoji_id="5870609858520158157"),
         MessageEntity(type="custom_emoji", offset=utf16_len(line1 + line2 + line3 + line4),
-                      length=utf16_len(e5), custom_emoji_id="5197434882321567830"),
+                      length=utf16_len(e5), custom_emoji_id="5330192398750342389"),
     ]
     kb = InlineKeyboardMarkup(inline_keyboard=[[back_btn("pay_tonkeeper")]])
     await callback.message.edit_caption(caption=text, reply_markup=kb, caption_entities=entities)
@@ -1076,7 +1076,7 @@ async def process_crypto_topup_amount(message: types.Message, state: FSMContext)
         MessageEntity(type="custom_emoji", offset=0,
                       length=utf16_len(e1), custom_emoji_id="5397829221605191505"),
         MessageEntity(type="custom_emoji", offset=utf16_len(line1),
-                      length=utf16_len(e2), custom_emoji_id="5289970176052179025"),
+                      length=utf16_len(e2), custom_emoji_id="5328309412073335328"),
         MessageEntity(type="custom_emoji", offset=utf16_len(line1 + line2),
                       length=utf16_len(e3), custom_emoji_id="5870609858520158157"),
         MessageEntity(type="custom_emoji", offset=utf16_len(line1 + line2 + line3),
@@ -1139,10 +1139,10 @@ async def my_profile(callback: types.CallbackQuery):
         MessageEntity(type="custom_emoji", offset=utf16_len(line0 + line1),
                       length=utf16_len(e_user), custom_emoji_id="5771887475421090729"),
         MessageEntity(type="custom_emoji", offset=utf16_len(line0 + line1 + line2),
-                      length=utf16_len(e_bal), custom_emoji_id="5289970176052179025"),
+                      length=utf16_len(e_bal), custom_emoji_id="5328309412073335328"),
         MessageEntity(type="custom_emoji",
                       offset=utf16_len(line0 + line1 + line2 + line3 + line4),
-                      length=utf16_len(e_ord), custom_emoji_id="5346267284518239633"),
+                      length=utf16_len(e_ord), custom_emoji_id="5312361253610475399"),
         MessageEntity(type="custom_emoji",
                       offset=utf16_len(line0 + line1 + line2 + line3 + line4 + line5),
                       length=utf16_len(e_star), custom_emoji_id="5346309121794659890"),
@@ -1154,7 +1154,7 @@ async def my_profile(callback: types.CallbackQuery):
                       length=utf16_len(e_ton), custom_emoji_id="5370546279375982437"),
         MessageEntity(type="custom_emoji",
                       offset=utf16_len(line0 + line1 + line2 + line3 + line4 + line5 + line6 + line7 + line8),
-                      length=utf16_len(e_date), custom_emoji_id="5967412305338568701"),
+                      length=utf16_len(e_date), custom_emoji_id="5274055917766202507"),
     ]
 
     kb = InlineKeyboardMarkup(inline_keyboard=[
@@ -1312,9 +1312,9 @@ async def order_detail(callback: types.CallbackQuery):
             MessageEntity(type="custom_emoji", offset=0,
                           length=utf16_len(e1), custom_emoji_id="5346309121794659890"),
             MessageEntity(type="custom_emoji", offset=utf16_len(line1),
-                          length=utf16_len(e2), custom_emoji_id="5289970176052179025"),
+                          length=utf16_len(e2), custom_emoji_id="5328309412073335328"),
             MessageEntity(type="custom_emoji", offset=utf16_len(line1 + line2),
-                          length=utf16_len(e3), custom_emoji_id="5967412305338568701"),
+                          length=utf16_len(e3), custom_emoji_id="5274055917766202507"),
             MessageEntity(type="custom_emoji", offset=utf16_len(line1 + line2 + line3),
                           length=utf16_len(e4), custom_emoji_id="5870994129244131212"),
         ]
@@ -1339,9 +1339,9 @@ async def order_detail(callback: types.CallbackQuery):
             MessageEntity(type="custom_emoji", offset=0,
                           length=utf16_len(e1), custom_emoji_id="5274026806477857971"),
             MessageEntity(type="custom_emoji", offset=utf16_len(line1),
-                          length=utf16_len(e2), custom_emoji_id="5289970176052179025"),
+                          length=utf16_len(e2), custom_emoji_id="5328309412073335328"),
             MessageEntity(type="custom_emoji", offset=utf16_len(line1 + line2),
-                          length=utf16_len(e3), custom_emoji_id="5967412305338568701"),
+                          length=utf16_len(e3), custom_emoji_id="5274055917766202507"),
             MessageEntity(type="custom_emoji", offset=utf16_len(line1 + line2 + line3),
                           length=utf16_len(e4), custom_emoji_id="5870994129244131212"),
         ]
@@ -1382,9 +1382,9 @@ async def order_detail(callback: types.CallbackQuery):
             MessageEntity(type="custom_emoji", offset=0,
                           length=utf16_len(e1), custom_emoji_id="5370546279375982437"),
             MessageEntity(type="custom_emoji", offset=utf16_len(line1),
-                          length=utf16_len(e2), custom_emoji_id="5289970176052179025"),
+                          length=utf16_len(e2), custom_emoji_id="5328309412073335328"),
             MessageEntity(type="custom_emoji", offset=utf16_len(line1 + line2),
-                          length=utf16_len(e3), custom_emoji_id="5967412305338568701"),
+                          length=utf16_len(e3), custom_emoji_id="5274055917766202507"),
             MessageEntity(type="custom_emoji", offset=utf16_len(line1 + line2 + line3),
                           length=utf16_len(e4), custom_emoji_id="5870994129244131212"),
         ]
@@ -1397,9 +1397,9 @@ async def order_detail(callback: types.CallbackQuery):
             MessageEntity(type="custom_emoji", offset=0,
                           length=utf16_len(e1), custom_emoji_id="5258389041006518073"),
             MessageEntity(type="custom_emoji", offset=utf16_len(line1),
-                          length=utf16_len(e2), custom_emoji_id="5289970176052179025"),
+                          length=utf16_len(e2), custom_emoji_id="5328309412073335328"),
             MessageEntity(type="custom_emoji", offset=utf16_len(line1 + line2),
-                          length=utf16_len(e3), custom_emoji_id="5967412305338568701"),
+                          length=utf16_len(e3), custom_emoji_id="5274055917766202507"),
         ]
 
     kb = InlineKeyboardMarkup(inline_keyboard=[[back_btn("order_history")]])
@@ -1439,7 +1439,7 @@ async def show_referral(callback: types.CallbackQuery):
         MessageEntity(type="custom_emoji", offset=utf16_len(line1 + line2),
                       length=utf16_len(e2), custom_emoji_id="5870695289714643076"),
         MessageEntity(type="custom_emoji", offset=utf16_len(line1 + line2 + line3),
-                      length=utf16_len(e3), custom_emoji_id="5289970176052179025"),
+                      length=utf16_len(e3), custom_emoji_id="5328309412073335328"),
         MessageEntity(type="custom_emoji", offset=utf16_len(line1 + line2 + line3 + line4),
                       length=utf16_len(e4), custom_emoji_id="6028171274939797252"),
         MessageEntity(type="custom_emoji",
@@ -1796,9 +1796,9 @@ async def handle_buy_ton(callback: types.CallbackQuery, state: FSMContext):
     text = p1 + p2
     entities = [
         MessageEntity(type="custom_emoji", offset=0,
-                      length=utf16_len(e1), custom_emoji_id="5240059263048517877"),
+                      length=utf16_len(e1), custom_emoji_id="5370546279375982437"),
         MessageEntity(type="custom_emoji", offset=utf16_len(p1),
-                      length=utf16_len(e2), custom_emoji_id="5312441427764989435"),
+                      length=utf16_len(e2), custom_emoji_id="5346174496044773695"),
     ]
     kb = InlineKeyboardMarkup(inline_keyboard=[[back_btn("main_menu")]])
     await callback.message.edit_caption(
@@ -1905,7 +1905,7 @@ async def process_ton_wallet(message: types.Message, state: FSMContext):
         MessageEntity(type="custom_emoji", offset=utf16_len(l1 + l2),
                       length=utf16_len(e3), custom_emoji_id="5397586104981403273"),
         MessageEntity(type="custom_emoji", offset=utf16_len(l1 + l2 + l3),
-                      length=utf16_len(e4), custom_emoji_id="5289970176052179025"),
+                      length=utf16_len(e4), custom_emoji_id="5328309412073335328"),
     ]
     kb = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="Подтвердить", callback_data="ton_confirm",
@@ -2034,7 +2034,7 @@ async def ton_admin_done(callback: types.CallbackQuery):
         MessageEntity(type="custom_emoji", offset=utf16_len(l1 + l2),
                       length=utf16_len(e3), custom_emoji_id="5397586104981403273"),
         MessageEntity(type="custom_emoji", offset=utf16_len(l1 + l2 + l3),
-                      length=utf16_len(e4), custom_emoji_id="5289970176052179025"),
+                      length=utf16_len(e4), custom_emoji_id="5328309412073335328"),
     ]
     try:
         await bot.send_message(uid, text, entities=ent)
@@ -2080,7 +2080,7 @@ async def ton_admin_cancel(callback: types.CallbackQuery):
         MessageEntity(type="custom_emoji", offset=0,
                       length=utf16_len(e1), custom_emoji_id="5273914604752216432"),
         MessageEntity(type="custom_emoji", offset=utf16_len(l1),
-                      length=utf16_len(e2), custom_emoji_id="5289970176052179025"),
+                      length=utf16_len(e2), custom_emoji_id="5328309412073335328"),
     ]
     try:
         await bot.send_message(uid, text, entities=ent)
