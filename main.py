@@ -993,36 +993,29 @@ async def pay_tonkeeper(callback: types.CallbackQuery, state: FSMContext):
 
 @dp.callback_query(lambda c: c.data in ("topup_ton", "topup_usdt"))
 async def topup_crypto_menu(callback: types.CallbackQuery, state: FSMContext):
-    is_ton  = callback.data == "topup_ton"
-    rate    = get_ton_rate_pure() if is_ton else get_usdt_rate_pure()
-    if rate <= 0:
-        await fetch_pure_rates()
-        rate = get_ton_rate_pure() if is_ton else get_usdt_rate_pure()
-    rate_str   = f"{rate:.2f}"
-    crypto     = "TON" if is_ton else "USDT"
+    is_ton = callback.data == "topup_ton"
+    await fetch_pure_rates()
+    rate   = get_ton_rate_usd() if is_ton else 1.0  # USDT всегда $1
+    crypto = "TON" if is_ton else "USDT"
+    rate_str = f"{rate:.4f}" if is_ton else "1.0000"
     e1 = "\u2b50"; e2 = "\u2b50"; e3 = "\u2b50"; e4 = "\u2b50"; e5 = "\u2b50"
     line1 = f"{e1} Пополнение через {crypto} | Tonkeeper\n\n"
-    line2 = f"{e2} Курс: 1 {crypto} = {rate_str} RUB\n\n"
+    line2 = f"{e2} Курс: 1 {crypto} = ${rate_str}\n\n"
     line3 = f"{e3} Комиссия платёжной системы составляет 0%.\n"
-    line4 = f"{e4} Минимальное пополнение: 10 RUB\n\n"
-    line5 = f"{e5} Введите сумму:"
+    line4 = f"{e4} Минимальное пополнение: $0.30\n\n"
+    line5 = f"{e5} Введите сумму в долларах:"
     text  = line1 + line2 + line3 + line4 + line5
-    e1id = "5397829221605191505"
-    e2id = "5312441427764989435"
-    e3id = "5870609858520158157"
-    e4id = "5870609858520158157"
-    e5id = "5289970176052179025"
     entities = [
         MessageEntity(type="custom_emoji", offset=0,
-                      length=utf16_len(e1), custom_emoji_id=e1id),
+                      length=utf16_len(e1), custom_emoji_id="5397829221605191505"),
         MessageEntity(type="custom_emoji", offset=utf16_len(line1),
-                      length=utf16_len(e2), custom_emoji_id=e2id),
+                      length=utf16_len(e2), custom_emoji_id="5312441427764989435"),
         MessageEntity(type="custom_emoji", offset=utf16_len(line1 + line2),
-                      length=utf16_len(e3), custom_emoji_id=e3id),
+                      length=utf16_len(e3), custom_emoji_id="5870609858520158157"),
         MessageEntity(type="custom_emoji", offset=utf16_len(line1 + line2 + line3),
-                      length=utf16_len(e4), custom_emoji_id=e4id),
+                      length=utf16_len(e4), custom_emoji_id="5870609858520158157"),
         MessageEntity(type="custom_emoji", offset=utf16_len(line1 + line2 + line3 + line4),
-                      length=utf16_len(e5), custom_emoji_id=e5id),
+                      length=utf16_len(e5), custom_emoji_id="5197434882321567830"),
     ]
     kb = InlineKeyboardMarkup(inline_keyboard=[[back_btn("pay_tonkeeper")]])
     await callback.message.edit_caption(caption=text, reply_markup=kb, caption_entities=entities)
@@ -1041,13 +1034,13 @@ async def process_crypto_topup_amount(message: types.Message, state: FSMContext)
     user_id    = message.from_user.id
 
     try:
-        rub_amount = float(message.text.strip().replace(",", "."))
-        if rub_amount < 10:
+        usd_amount = float(message.text.strip().replace(",", ".").replace("$", ""))
+        if usd_amount < 0.30:
             raise ValueError
     except ValueError:
         e = "\u2b50"
         err = await message.answer(
-            f"{e} Минимальное пополнение 10 RUB",
+            f"{e} Минимальное пополнение $0.30",
             entities=[MessageEntity(type="custom_emoji", offset=0, length=utf16_len(e),
                                     custom_emoji_id="5273914604752216432")]
         )
@@ -1055,48 +1048,27 @@ async def process_crypto_topup_amount(message: types.Message, state: FSMContext)
         await err.delete()
         return
 
-    rate     = get_ton_rate_pure() if crypto == "TON" else get_usdt_rate_pure()
-    if rate <= 0:
-        await fetch_pure_rates()
-        rate = get_ton_rate_pure() if crypto == "TON" else get_usdt_rate_pure()
-    crypto_amount = round(rub_amount / rate, 6) if rate > 0 else 0
-
-    # Генерируем уникальный memo
-    import secrets
-    memo = f"hs_{user_id}_{secrets.token_hex(4)}"
-
-    # Сохраняем pending платёж в БД
-    await create_topup_order(user_id, rub_amount, crypto_amount, crypto, memo)
-
-    # Строим ссылку TonKeeper
-    import urllib.parse
-    nano_amount = int(crypto_amount * 1_000_000_000)
+    # Конвертируем $ в крипту
     if crypto == "TON":
-        pay_url = (
-            f"ton://transfer/{RECEIVE_WALLET}"
-            f"?amount={nano_amount}"
-            f"&text={urllib.parse.quote(memo)}"
-        )
+        rate         = get_ton_rate_usd()
+        crypto_amount = round(usd_amount / rate, 6) if rate > 0 else 0
     else:
-        # USDT на TON — jetton transfer (UQC...USDT contract)
-        USDT_CONTRACT = "EQCxE6mUtQJKFnGfaROTKOt1lZbDiiX1kCixRv7Nw2Id_sDs"
-        usdt_nano = int(crypto_amount * 1_000_000)  # USDT 6 decimals
-        pay_url = (
-            f"ton://transfer/{USDT_CONTRACT}"
-            f"?amount=100000000"
-            f"&bin=te6cckEBAQEAUAAAm0AAxOm7y3bCAiT6r..."  # simplified
-            f"&text={urllib.parse.quote(memo)}"
-        )
-        # Используем прямой transfer с комментарием для простоты
-        pay_url = (
-            f"ton://transfer/{RECEIVE_WALLET}"
-            f"?amount=100000000"
-            f"&text={urllib.parse.quote(memo)}"
-        )
+        crypto_amount = round(usd_amount, 6)  # USDT = $1
+
+    import secrets, urllib.parse
+    memo       = f"hs_{user_id}_{secrets.token_hex(4)}"
+    await create_topup_order(user_id, usd_amount, crypto_amount, crypto, memo)
+
+    nano_amount = int(crypto_amount * 1_000_000_000)
+    pay_url = (
+        f"ton://transfer/{RECEIVE_WALLET}"
+        f"?amount={nano_amount}"
+        f"&text={urllib.parse.quote(memo)}"
+    )
 
     e1 = "\u2b50"; e2 = "\u2b50"; e3 = "\u2b50"; e4 = "\u2b50"
     line1 = f"{e1} Платеж через TONkeeper\n\n"
-    line2 = f"{e2} Сумма: {crypto_amount} {crypto}\n\n"
+    line2 = f"{e2} Сумма: {crypto_amount} {crypto} (${usd_amount})\n\n"
     line3 = f"{e3} Для оплаты:\n1. Нажмите кнопку \"Оплатить через TONkeeper\"\n2. Подтвердите транзакцию в кошельке\n\n"
     line4 = f"{e4} Важно: Мемо будет автоматически добавлено в транзакцию"
     text  = line1 + line2 + line3 + line4
@@ -2129,9 +2101,10 @@ async def ton_admin_cancel(callback: types.CallbackQuery):
 TON_MARKUP_RUB    = 13
 RECEIVE_WALLET    = "UQBjA6mWzGBf-j9vHjcuhRss1VU4ka0jWjd9BfRK93xHOwWz"
 
-# ─── Курс TON и USDT без наценки (для пополнения) ────────────────────────────
-_ton_rate_pure: float  = 0.0   # TON/RUB без наценки
-_usdt_rate_pure: float = 0.0   # USDT/RUB без наценки
+# ─── Курс TON/USD (для пополнения через Tonkeeper) ───────────────────────────
+_ton_rate_pure: float  = 0.0
+_usdt_rate_pure: float = 0.0
+_ton_usd_rate: float   = 3.0  # TON в долларах
 
 
 def get_ton_rate_pure() -> float:
@@ -2142,27 +2115,34 @@ def get_usdt_rate_pure() -> float:
     return _usdt_rate_pure
 
 
+def get_ton_rate_usd() -> float:
+    return _ton_usd_rate
+
+
 async def fetch_pure_rates():
-    global _ton_rate_pure, _usdt_rate_pure
+    """Обновляет курс TON/USD через Binance (бесплатно, без лимитов)."""
+    global _ton_rate_pure, _usdt_rate_pure, _ton_usd_rate
     try:
         async with aiohttp.ClientSession() as s:
             r = await s.get(
-                "https://api.coingecko.com/api/v3/simple/price",
-                params={"ids": "the-open-network,tether", "vs_currencies": "rub"},
-                timeout=aiohttp.ClientTimeout(total=10),
-                headers={"User-Agent": "Mozilla/5.0"},
+                "https://api.binance.com/api/v3/ticker/price",
+                params={"symbol": "TONUSDT"},
+                timeout=aiohttp.ClientTimeout(total=5),
             )
             data = await r.json()
-            _ton_rate_pure  = float(data["the-open-network"]["rub"])
-            _usdt_rate_pure = float(data["tether"]["rub"])
+            _ton_usd_rate  = float(data["price"])
+            _ton_rate_pure = _ton_usd_rate  # для совместимости
     except Exception:
         pass
+    # RUB курсы оставляем для обратной совместимости
+    _usdt_rate_pure = 1.0
 
 
 async def pure_rates_loop():
+    """Обновление каждую минуту через Binance."""
     while True:
         await fetch_pure_rates()
-        await asyncio.sleep(300)
+        await asyncio.sleep(60)
 _ton_rate_cache = 0.0
 
 
