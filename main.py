@@ -981,17 +981,6 @@ async def process_amount(message: types.Message, state: FSMContext):
 
 @dp.callback_query(lambda c: c.data == "pay_tonkeeper")
 async def pay_tonkeeper(callback: types.CallbackQuery, state: FSMContext):
-    e1 = "\u2b50"; e2 = "\u2b50"
-    line1 = "Выбери способ оплаты:\n\n"
-    line2 = f"{e1} TON\n"
-    line3 = f"{e2} USDT"
-    text  = line1 + line2 + line3
-    entities = [
-        MessageEntity(type="custom_emoji", offset=utf16_len(line1),
-                      length=utf16_len(e1), custom_emoji_id="5370546279375982437"),
-        MessageEntity(type="custom_emoji", offset=utf16_len(line1 + line2),
-                      length=utf16_len(e2), custom_emoji_id="5398080099234886346"),
-    ]
     kb = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="TON", callback_data="topup_ton",
                               icon_custom_emoji_id="5370546279375982437"),
@@ -999,9 +988,8 @@ async def pay_tonkeeper(callback: types.CallbackQuery, state: FSMContext):
                               icon_custom_emoji_id="5398080099234886346")],
         [back_btn("top_up")]
     ])
-    await callback.message.edit_caption(caption=text, reply_markup=kb, caption_entities=entities)
+    await callback.message.edit_caption(caption="Выбери способ оплаты:", reply_markup=kb)
     await callback.answer()
-
 
 @dp.callback_query(lambda c: c.data in ("topup_ton", "topup_usdt"))
 async def topup_crypto_menu(callback: types.CallbackQuery, state: FSMContext):
