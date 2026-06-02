@@ -881,12 +881,17 @@ async def stars_cancel(callback: types.CallbackQuery, state: FSMContext):
 @dp.callback_query(lambda c: c.data == "top_up")
 async def top_up_menu(callback: types.CallbackQuery, state: FSMContext):
     await state.clear()
-    e1    = "⭐"
+    e1 = "⭐"; e2 = "⭐"
     line1 = "Выберите способ пополнения из предложенных:\n\n"
-    line2 = f"{e1} СБП - оплата рублями через QR-код"
-    text  = line1 + line2
-    entities = [MessageEntity(type="custom_emoji", offset=utf16_len(line1),
-                              length=utf16_len(e1), custom_emoji_id="5368446439800197476")]
+    line2 = f"{e1} СБП - оплата рублями через QR-код\n"
+    line3 = f"{e2} Tonkeeper - оплата TON | USDT"
+    text  = line1 + line2 + line3
+    entities = [
+        MessageEntity(type="custom_emoji", offset=utf16_len(line1),
+                      length=utf16_len(e1), custom_emoji_id="5368446439800197476"),
+        MessageEntity(type="custom_emoji", offset=utf16_len(line1 + line2),
+                      length=utf16_len(e2), custom_emoji_id="5397829221605191505"),
+    ]
     await callback.message.edit_caption(
         caption=text,
         reply_markup=build_payment_method_keyboard(),
