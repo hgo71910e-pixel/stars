@@ -997,7 +997,7 @@ async def topup_crypto_menu(callback: types.CallbackQuery, state: FSMContext):
     await fetch_pure_rates()
     rate   = get_ton_rate_usd() if is_ton else 1.0  # USDT всегда $1
     crypto = "TON" if is_ton else "USDT"
-    rate_str = f"{rate:.4f}" if is_ton else "1.0000"
+    rate_str = f"{rate:.2f}".rstrip('0').rstrip('.') if is_ton else "1"
     e1 = "\u2b50"; e2 = "\u2b50"; e3 = "\u2b50"; e4 = "\u2b50"; e5 = "\u2b50"
     line1 = f"{e1} Пополнение через {crypto} | Tonkeeper\n\n"
     line2 = f"{e2} Курс: 1 {crypto} = ${rate_str}\n\n"
@@ -2104,7 +2104,7 @@ RECEIVE_WALLET    = "UQBjA6mWzGBf-j9vHjcuhRss1VU4ka0jWjd9BfRK93xHOwWz"
 # ─── Курс TON/USD (для пополнения через Tonkeeper) ───────────────────────────
 _ton_rate_pure: float  = 0.0
 _usdt_rate_pure: float = 0.0
-_ton_usd_rate: float   = 3.0  # TON в долларах
+_ton_usd_rate: float   = 0.0  # TON в долларах, загрузится при старте
 
 
 def get_ton_rate_pure() -> float:
@@ -2122,6 +2122,7 @@ def get_ton_rate_usd() -> float:
 async def fetch_pure_rates():
     """Обновляет курс TON/USD через Binance (бесплатно, без лимитов)."""
     global _ton_rate_pure, _usdt_rate_pure, _ton_usd_rate
+    # Пробуем Binance
     try:
         async with aiohttp.ClientSession() as s:
             r = await s.get(
@@ -2130,12 +2131,30 @@ async def fetch_pure_rates():
                 timeout=aiohttp.ClientTimeout(total=5),
             )
             data = await r.json()
-            _ton_usd_rate  = float(data["price"])
-            _ton_rate_pure = _ton_usd_rate  # для совместимости
+            price = float(data["price"])
+            if price > 0:
+                _ton_usd_rate  = price
+                _ton_rate_pure = price
+                _usdt_rate_pure = 1.0
+                return
     except Exception:
         pass
-    # RUB курсы оставляем для обратной совместимости
-    _usdt_rate_pure = 1.0
+    # Fallback: OKX
+    try:
+        async with aiohttp.ClientSession() as s:
+            r = await s.get(
+                "https://www.okx.com/api/v5/market/ticker",
+                params={"instId": "TON-USDT"},
+                timeout=aiohttp.ClientTimeout(total=5),
+            )
+            data = await r.json()
+            price = float(data["data"][0]["last"])
+            if price > 0:
+                _ton_usd_rate  = price
+                _ton_rate_pure = price
+                _usdt_rate_pure = 1.0
+    except Exception:
+        pass
 
 
 async def pure_rates_loop():
